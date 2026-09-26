@@ -4,244 +4,393 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Hiring Pipeline{% endblock %}</title>
+  {# Colours the browser chrome on mobile, so the address bar does not sit at
+     the default white above a cream page. It needs one tag per theme; the
+     `media` attribute is what picks between them. #}
+  <meta name="theme-color" content="#f7f3ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#17140f" media="(prefers-color-scheme: dark)">
   <style>
-    /* Every colour in this file goes through a token, and that is the whole
-       reason the dark theme is a twenty-line block rather than a second
-       stylesheet. A rule that hardcodes `#fff` renders white in *both* themes,
-       which is how a dark mode ships broken on the one card nobody looked at.
-       If you need a new shade, add a token to both blocks -- never a literal
-       below them. */
+    /* Every colour goes through a token, and that is the whole reason the dark
+       theme is a block of overrides rather than a second stylesheet. A rule
+       that hardcodes `#fff` renders white in *both* themes, which is how a
+       dark mode ships broken on the one card nobody looked at. If you need a
+       new shade, add a token to both blocks -- never a literal below them.
+
+       The palette is warm. The page is cream rather than grey and the greys
+       that remain are warm greys (a bare #888 next to cream reads faintly
+       blue, which is what makes a themed page look like two designs). The dark
+       theme is warm for the same reason: it is the same page at night, not a
+       different product. */
     :root {
-      /* Tells the browser how to render the parts of the page it owns rather
-         than us: scrollbars, the caret, the focus ring on a control we have
-         not styled, autofill. Without it a dark page keeps a bright scrollbar
-         down the side, which is the detail that makes a theme look unfinished. */
+      /* Tells the browser how to draw the parts of the page it owns rather
+         than us: scrollbars, the caret, autofill, the focus ring on any
+         control we have not styled. Without it a dark page keeps a bright
+         scrollbar down the side, which is the detail that gives a theme away. */
       color-scheme: light;
 
-      --bg: #f6f7f9;
-      --surface: #ffffff;
-      --border: #dfe3e8;
-      --text: #1b1f24;
-      --muted: #6b7280;
-      --accent: #2f6feb;
-      --accent-ink: #ffffff;      /* text drawn ON --accent, not text coloured BY it */
-      --accent-hover: #2560d0;
-      --danger: #b42318;
-      --ok: #0f7b3f;
+      /* --- surfaces, warm throughout ---------------------------------- */
+      --bg: #f7f3ea;              /* the page: cream */
+      --surface: #fffdf8;         /* cards, columns -- lifts off the cream */
+      --surface-2: #f2ece0;       /* recessed: chips, inline code, the board rail */
+      --border: #e4dccb;
+      --border-strong: #d3c8b0;   /* hover and scrollbar only */
 
-      --field: #ffffff;           /* inputs, buttons, candidate cards */
-      --field-hover: #f0f2f5;
-      --chip: #eef1f5;            /* stage counts, inline code, neutral badge */
-      --column-head: #fafbfc;     /* header of a terminal column */
+      /* --- ink --------------------------------------------------------- */
+      --text: #2b2621;
+      --muted: #6e6656;
+      --faint: #7d7462;           /* metadata: dimmer than --muted, still AA */
 
-      --ok-bg: #e6f4ec;
-      --ok-bg-faint: #f2fbf5;
-      --danger-bg: #fdecea;
-      --danger-bg-faint: #fdf2f0;
-      --danger-border: #f0c2bd;
-      --note-bg: #fff5e0;
-      --note-fg: #8a5a00;
+      /* --- one accent, deep teal --------------------------------------- */
+      --accent: #0e6b6b;
+      --accent-ink: #ffffff;      /* text drawn ON --accent, not coloured BY it */
+      --accent-hover: #0a5656;
+      --accent-soft: #e3efee;     /* accent-tinted fill, e.g. a selected row */
 
-      --radius: 8px;
+      /* --- semantic ---------------------------------------------------- */
+      --ok: #2f6b3f;
+      --ok-bg: #e6f0e4;
+      --ok-bg-faint: #eff5ed;
+      --danger: #a33a2a;
+      --danger-bg: #f7e6e1;
+      --danger-bg-faint: #fbecea;
+      --danger-border: #e0bdb2;
+      --note-bg: #f8eeda;
+      --note-fg: #7a5312;
+
+      --chip: #efe8db;
+      --column-head: #f4efe4;
+
+      /* --- form -------------------------------------------------------- */
+      --field: #fffdf8;
+      --field-hover: #f4efe4;
+
+      /* --- geometry and motion ----------------------------------------- */
+      --radius: 10px;
+      --radius-sm: 7px;
+      --radius-pill: 999px;
+
+      /* One shadow recipe used at two depths, warm rather than black: a
+         neutral-black shadow over cream reads as a grey smudge. */
+      --shadow-sm: 0 1px 2px rgba(74, 60, 38, .05);
+      --shadow-md: 0 2px 4px rgba(74, 60, 38, .06), 0 1px 2px rgba(74, 60, 38, .04);
+      --shadow-inset: inset 0 1px 2px rgba(74, 60, 38, .06);
+
+      --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype",
+                      Palatino, Georgia, serif;
+      --ease: 120ms cubic-bezier(.2, .7, .3, 1);
     }
 
-    /* The dark theme. Only tokens change; not one selector below this block
-       knows which theme is active. That is deliberate -- a component cannot
-       work in one theme and not the other, it can only be right or wrong in
-       both at once.
+    /* The dark theme. Only tokens change; not one selector below knows which
+       theme is active, so a component cannot work in one and not the other --
+       it can only be right or wrong in both at once.
 
-       The values are not an inversion, and that is the part worth reading. The
-       background is a blue-tinted near-black rather than #000 and the text is
-       #e6e9ef rather than #fff, because pure white on pure black is the
-       combination that haloes on an OLED panel and makes 15px body text
-       tiring. The accents are lightened for the same reason inverted: #2f6feb
-       on a dark surface fails contrast, so links become #6ea8fe and --accent-ink
-       flips to near-black, since white on a light-blue button is the one place
-       the whole palette turns over. */
+       Not an inversion, and that is the part worth reading. The background is
+       a warm near-black rather than #000 and the text is #ece5d8 rather than
+       #fff, because pure white on pure black haloes on an OLED panel and makes
+       15px body text tiring. The accents lighten rather than invert, since the
+       deep teal that passes contrast on cream disappears on a dark surface,
+       and --accent-ink flips to near-black because white on a light teal
+       button is the one place the whole palette turns over. */
     @media (prefers-color-scheme: dark) {
       :root {
         color-scheme: dark;
 
-        --bg: #0f1115;
-        --surface: #171a21;
-        --border: #272c36;
-        --text: #e6e9ef;
-        --muted: #9aa3b2;
-        --accent: #6ea8fe;
-        --accent-ink: #0f1115;
-        --accent-hover: #8bbcff;
-        --danger: #ff8a80;
-        --ok: #6ee7a8;
+        --bg: #17140f;
+        --surface: #201c16;
+        --surface-2: #262119;
+        --border: #363026;
+        --border-strong: #4a4234;
 
-        --field: #1d2129;
-        --field-hover: #262b35;
-        --chip: #262b35;
-        --column-head: #1b1f27;
+        --text: #ece5d8;
+        --muted: #a79c89;
+        --faint: #948a7c;
 
-        --ok-bg: #16301f;
-        --ok-bg-faint: #14261b;
-        --danger-bg: #3a1d1b;
-        --danger-bg-faint: #33201e;
-        --danger-border: #6b3a34;
-        --note-bg: #3a2f14;
-        --note-fg: #ffd479;
+        --accent: #6cc5c0;
+        --accent-ink: #10201f;
+        --accent-hover: #8ad6d1;
+        --accent-soft: #1d2f2e;
+
+        --ok: #86cc95;
+        --ok-bg: #1b2c1d;
+        --ok-bg-faint: #182619;
+        --danger: #f09480;
+        --danger-bg: #3a2019;
+        --danger-bg-faint: #301c17;
+        --danger-border: #6b3a2c;
+        --note-bg: #352a15;
+        --note-fg: #f0c979;
+
+        --chip: #2b251d;
+        --column-head: #242019;
+
+        --field: #262119;
+        --field-hover: #2f2921;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, .30);
+        --shadow-md: 0 2px 5px rgba(0, 0, 0, .34), 0 1px 2px rgba(0, 0, 0, .24);
+        --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, .30);
       }
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             "Helvetica Neue", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
-    a { color: var(--accent); }
-    .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 20px 64px; }
-    header.top { margin-bottom: 20px; }
-    header.top h1 { margin: 0 0 2px; font-size: 22px; }
-    header.top p { margin: 0; color: var(--muted); font-size: 13px; }
-    header.top a { font-size: 13px; }
 
+    a { color: var(--accent); text-underline-offset: 2px; }
+    ::selection { background: var(--accent-soft); color: var(--text); }
+
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 22px 72px; }
+
+    /* --- header --------------------------------------------------------- */
+    header.top {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex; flex-wrap: wrap; align-items: baseline;
+      justify-content: space-between; gap: 4px 16px;
+    }
+    /* The one serif on the page. It is the product's name and nothing else is
+       competing with it; a serif anywhere else starts to look like a theme
+       rather than a decision. */
+    header.top h1 {
+      margin: 0; font-family: var(--font-display); font-size: 26px;
+      font-weight: 600; letter-spacing: -.01em; line-height: 1.2;
+    }
+    header.top h1 a { text-decoration: none; color: inherit; }
+    header.top p {
+      margin: 0; color: var(--muted); font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    header.top p a { text-decoration: none; border-bottom: 1px solid transparent; }
+    header.top p a:hover { border-bottom-color: currentColor; }
+
+    /* --- card ----------------------------------------------------------- */
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 16px;
+      box-shadow: var(--shadow-sm);
+      padding: 18px;
       margin-bottom: 20px;
     }
 
-    /* --- search ------------------------------------------------------- */
+    /* --- search --------------------------------------------------------- */
     form.search { display: flex; gap: 8px; }
     form.search input[type=text] {
-      flex: 1; padding: 11px 13px; font-size: 15px;
+      flex: 1; padding: 12px 14px; font-size: 15px; font-family: inherit;
       border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--field); color: var(--text);
+      box-shadow: var(--shadow-inset);
+      transition: border-color var(--ease), box-shadow var(--ease);
     }
+    form.search input[type=text]::placeholder { color: var(--faint); }
+    form.search input[type=text]:hover { border-color: var(--border-strong); }
     form.search input[type=text]:focus {
-      outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent);
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
     }
+
+    /* --- buttons -------------------------------------------------------- */
     button, .btn {
-      padding: 10px 15px; font-size: 14px; font-family: inherit;
+      padding: 11px 16px; font-size: 14px; font-family: inherit;
       border: 1px solid var(--border); border-radius: var(--radius);
-      background: var(--field); color: var(--text); cursor: pointer; text-decoration: none;
-      display: inline-block;
+      background: var(--field); color: var(--text);
+      box-shadow: var(--shadow-sm);
+      cursor: pointer; text-decoration: none; display: inline-block;
+      transition: background var(--ease), border-color var(--ease),
+                  box-shadow var(--ease), transform var(--ease);
     }
-    button:hover, .btn:hover { background: var(--field-hover); }
+    button:hover, .btn:hover { background: var(--field-hover); border-color: var(--border-strong); }
+    /* One pixel, not a lift. Enough to feel like the thing moved; not enough to
+       make a form of five buttons look like it is breathing. */
+    button:active, .btn:active { transform: translateY(1px); box-shadow: none; }
     button.primary {
       background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+      font-weight: 500;
     }
-    button.primary:hover { background: var(--accent-hover); }
-    button.small { padding: 4px 9px; font-size: 12px; }
+    button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    button.small { padding: 5px 10px; font-size: 12px; border-radius: var(--radius-sm); }
     button.danger { color: var(--danger); border-color: var(--danger-border); }
-    button.danger:hover { background: var(--danger-bg-faint); }
+    button.danger:hover { background: var(--danger-bg-faint); border-color: var(--danger); }
 
-    .hint { color: var(--muted); font-size: 13px; margin-top: 10px; }
-    .hint code {
-      background: var(--chip); padding: 2px 6px; border-radius: 4px;
-      font-size: 12px; cursor: pointer;
+    /* Keyboard focus only -- a mouse click on a button should not leave a ring
+       behind, but tabbing to one must. */
+    a:focus-visible, button:focus-visible, input:focus-visible,
+    [tabindex]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: var(--radius-sm);
     }
 
-    /* --- the "we did not understand you" panel ------------------------- */
+    .hint { color: var(--muted); font-size: 13px; margin-top: 12px; line-height: 1.7; }
+    .hint code {
+      background: var(--surface-2); border: 1px solid var(--border);
+      padding: 2px 7px; border-radius: var(--radius-sm);
+      font-size: 12px; cursor: pointer;
+      transition: background var(--ease), border-color var(--ease);
+    }
+    .hint a:hover code { background: var(--accent-soft); border-color: var(--accent); }
+
+    /* --- the "we did not understand you" panel -------------------------- */
     .explain { border-left: 4px solid var(--danger); }
     .explain h2 { margin: 0 0 6px; font-size: 16px; color: var(--danger); }
     .explain p { margin: 0 0 10px; }
     .explain ul { margin: 6px 0 0; padding-left: 20px; }
     .explain li { margin-bottom: 4px; }
 
-    /* --- board --------------------------------------------------------- */
-    .board { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
+    /* --- board ---------------------------------------------------------- */
+    .board {
+      display: flex; gap: 14px; overflow-x: auto; padding: 2px 2px 10px;
+      scroll-snap-type: x proximity;
+      scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent;
+    }
+    .board::-webkit-scrollbar { height: 9px; }
+    .board::-webkit-scrollbar-track { background: transparent; }
+    .board::-webkit-scrollbar-thumb {
+      background: var(--border-strong); border-radius: var(--radius-pill);
+    }
     .column {
-      flex: 1 0 190px; background: var(--surface);
+      flex: 1 0 208px; background: var(--surface);
       border: 1px solid var(--border); border-radius: var(--radius);
-      display: flex; flex-direction: column; min-height: 120px;
+      box-shadow: var(--shadow-sm);
+      display: flex; flex-direction: column; min-height: 132px;
+      scroll-snap-align: start;
+      /* The board scrolls sideways; without this the shadow is clipped on the
+         first and last column when the rail overflows. */
+      overflow: hidden;
     }
     .column h2 {
-      margin: 0; padding: 11px 13px; font-size: 13px; text-transform: uppercase;
-      letter-spacing: .04em; color: var(--muted);
+      margin: 0; padding: 12px 14px; font-size: 11.5px;
+      text-transform: uppercase; letter-spacing: .085em;
+      font-weight: 640; color: var(--muted);
       border-bottom: 1px solid var(--border);
-      display: flex; justify-content: space-between; align-items: center;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
     }
     .column h2 .count {
-      background: var(--chip); border-radius: 10px; padding: 1px 8px;
-      font-size: 12px; color: var(--text);
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius-pill); padding: 1px 8px;
+      font-size: 11.5px; font-weight: 600; color: var(--text);
+      font-variant-numeric: tabular-nums; letter-spacing: 0;
     }
-    .column .body { padding: 9px; display: flex; flex-direction: column; gap: 8px; }
-    .column .empty { color: var(--muted); font-size: 12px; padding: 3px; }
+    .column .body { padding: 10px; display: flex; flex-direction: column; gap: 9px; }
+    .column .empty { color: var(--faint); font-size: 12px; padding: 4px 2px; }
     .column.terminal h2 { background: var(--column-head); }
 
     /* --field, not --surface: the card sits on a column that is already
-       --surface, and in the dark theme the two need to differ or the board
+       --surface, and in the dark theme the two have to differ or the board
        reads as one flat block. */
     .candidate {
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: 9px 10px; background: var(--field);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 10px 11px; background: var(--field);
+      transition: box-shadow var(--ease), transform var(--ease), border-color var(--ease);
     }
-    .candidate .name { font-weight: 600; font-size: 14px; }
+    .candidate:hover {
+      box-shadow: var(--shadow-md); border-color: var(--border-strong);
+      transform: translateY(-1px);
+    }
+    .candidate .name { font-weight: 600; font-size: 14px; line-height: 1.35; }
     .candidate .name a { text-decoration: none; color: var(--text); }
-    .candidate .name a:hover { text-decoration: underline; }
-    .candidate .meta { color: var(--muted); font-size: 12px; margin-top: 1px; }
-    .candidate .actions { margin-top: 7px; display: flex; gap: 5px; }
+    .candidate .name a:hover { color: var(--accent); }
+    .candidate .meta {
+      color: var(--faint); font-size: 12px; margin-top: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .candidate .actions { margin-top: 8px; display: flex; gap: 5px; }
 
-    /* --- results ------------------------------------------------------- */
+    /* --- results -------------------------------------------------------- */
     .results { list-style: none; margin: 0; padding: 0; }
     .results li {
       display: flex; align-items: center; gap: 12px;
-      padding: 10px 2px; border-bottom: 1px solid var(--border);
+      padding: 11px 2px; border-bottom: 1px solid var(--border);
     }
     .results li:last-child { border-bottom: none; }
     .results .rank {
-      color: var(--muted); font-size: 12px; min-width: 22px; text-align: right;
+      color: var(--faint); font-size: 12px; min-width: 22px; text-align: right;
+      font-variant-numeric: tabular-nums;
     }
     .results .name { font-weight: 600; flex: 1; }
     .results .name a { text-decoration: none; color: var(--text); }
-    .results .name a:hover { text-decoration: underline; }
-    .results .meta { color: var(--muted); font-size: 12px; }
+    .results .name a:hover { color: var(--accent); }
+    .results .meta { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 
+    /* --- badges --------------------------------------------------------- */
+    /* A tinted fill alone reads as a highlight; the matching border is what
+       makes it read as a label. */
     .badge {
-      display: inline-block; padding: 2px 9px; border-radius: 10px;
-      font-size: 12px; text-transform: capitalize;
-      background: var(--chip); color: var(--text);
+      display: inline-block; padding: 2px 10px; border-radius: var(--radius-pill);
+      font-size: 11.5px; font-weight: 500; text-transform: capitalize;
+      background: var(--chip); border: 1px solid var(--border); color: var(--text);
+      white-space: nowrap;
     }
-    .badge.hired { background: var(--ok-bg); color: var(--ok); }
-    .badge.rejected { background: var(--danger-bg); color: var(--danger); }
-    .badge.note { background: var(--note-bg); color: var(--note-fg); text-transform: none; }
+    .badge.hired { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+    .badge.rejected { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+    .badge.note { background: var(--note-bg); border-color: var(--note-fg); color: var(--note-fg); text-transform: none; }
 
-    /* --- detail -------------------------------------------------------- */
-    dl.facts { display: grid; grid-template-columns: 150px 1fr; gap: 6px 14px; margin: 0; }
+    /* --- detail --------------------------------------------------------- */
+    dl.facts { display: grid; grid-template-columns: 150px 1fr; gap: 7px 16px; margin: 0; }
     dl.facts dt { color: var(--muted); font-size: 13px; }
     dl.facts dd { margin: 0; }
     table.history { width: 100%; border-collapse: collapse; margin-top: 6px; }
     table.history th, table.history td {
-      text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border);
+      text-align: left; padding: 10px; border-bottom: 1px solid var(--border);
       font-size: 14px; vertical-align: top;
     }
     table.history th {
-      color: var(--muted); font-size: 12px; text-transform: uppercase;
-      letter-spacing: .04em; font-weight: 600;
+      color: var(--muted); font-size: 11.5px; text-transform: uppercase;
+      letter-spacing: .085em; font-weight: 640;
     }
+    table.history td { font-variant-numeric: tabular-nums; }
+    table.history tbody tr { transition: background var(--ease); }
+    table.history tbody tr:hover { background: var(--surface-2); }
     table.history tr:last-child td { border-bottom: none; }
-    .arrow { color: var(--muted); }
+    .arrow { color: var(--faint); }
+
     .notice {
       border-left: 4px solid var(--ok); background: var(--ok-bg-faint);
-      padding: 10px 13px; border-radius: 4px; margin-bottom: 16px; font-size: 14px;
+      padding: 11px 14px; border-radius: var(--radius-sm);
+      margin-bottom: 16px; font-size: 14px;
     }
     .notice.bad { border-left-color: var(--danger); background: var(--danger-bg-faint); }
+
     .addform { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .addform input {
-      padding: 9px 11px; border: 1px solid var(--border);
+      padding: 10px 12px; border: 1px solid var(--border);
       border-radius: var(--radius); font-size: 14px; font-family: inherit;
       /* Stated rather than inherited from the UA: `color-scheme: dark` would
          make this dark anyway, but relying on the browser to agree with our
          palette is how the two drift apart. */
       background: var(--field); color: var(--text);
+      box-shadow: var(--shadow-inset);
+      transition: border-color var(--ease), box-shadow var(--ease);
+    }
+    .addform input::placeholder { color: var(--faint); }
+    .addform input:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    /* Anyone who has asked their system to stop animating things meant it. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        transition-duration: .01ms !important;
+        animation-duration: .01ms !important;
+      }
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <header class="top">
-      <h1><a href="/" style="text-decoration:none;color:inherit">Hiring Pipeline</a></h1>
+      <h1><a href="/">Hiring Pipeline</a></h1>
       <p>
         Backend Engineer &middot; {{ "{:,}".format(total_candidates) }} candidate{{ "" if total_candidates == 1 else "s" }}
         &middot; <a href="/docs">API docs</a>
