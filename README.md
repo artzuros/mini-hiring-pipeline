@@ -89,29 +89,36 @@ that must not fire by accident.
 
 ## Deployment
 
-The app is deployable to a single small EC2 instance behind a Cloudflare
-Tunnel, and the artifacts are in [`deploy/`](deploy/) with a step-by-step
-[runbook](deploy/RUNBOOK.md). **It has not been launched**, because the
-machine this was built on has no AWS credentials — `deploy/README.md` records
-exactly which parts are verified and which are not.
+**Live: <https://hiring-pipeline.pranav-bansal.com>** — the board, the search
+box, and the API below, running now on a single `t3.small` EC2 instance behind
+a Cloudflare Tunnel. The artifacts are in [`deploy/`](deploy/) with a
+step-by-step [runbook](deploy/RUNBOOK.md); [`deploy/README.md`](deploy/README.md)
+records what was and was not exercised getting there, including the four
+defects that only a real boot could find.
 
 Three things about the shape are worth stating plainly, because two of them
-are security decisions:
+are security decisions. Each was checked against the running instance rather
+than inferred from the configuration:
 
 - **Nothing on the instance is open to the internet.** The app binds
   `127.0.0.1:8000` and Postgres binds nothing at all; `cloudflared` dials out
   to Cloudflare's edge and requests come back down that connection. The
-  security group allows SSH and nothing else, so the usual "just open the port
-  to check" is not available and is not needed.
-- **There is no API key on the box.** The LLM fallback is disabled and
-  `ANTHROPIC_API_KEY` is empty. Search degrades to the rule parser, which
-  alone answers every example in the brief — and nobody who finds the URL can
+  security group allows SSH from a single address and nothing else, and ports
+  8000 and 5432 both time out from outside. The usual "just open the port to
+  check" is not available and is not needed.
+- **There is no API key on the box.** `ANTHROPIC_API_KEY` is empty and the
+  fallback is disabled: `grep -c ANTHROPIC .env` returns 0, and so does the
+  running container's own environment. Search degrades to the rule parser,
+  which alone answers every example below — and nobody who finds the URL can
   spend money through it.
 - **There is no authentication, and that is deliberate.** Anyone with the link
   can add candidates, move them, reject them, and write notes. Hiding the URL
   is not access control; the honest position is that access control belongs at
   the edge for a demo, and that this must not be carried into anything real.
   `deploy/RUNBOOK.md` ends with the same list.
+
+Every search in the table [below](#search-one-box-plain-english) was run
+against that URL and returns what the table says.
 
 ---
 

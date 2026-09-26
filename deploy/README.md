@@ -64,9 +64,18 @@ by executing them under `dash` with the mutating commands stubbed, which is a
 test that can fail. Defect 3 in particular was invisible until a real container
 ran and a real `ubuntu` user tried to read a real file.
 
-Still unexecuted: nothing in the boot path — the image build, the migrations,
-the seed, and the app serving all ran on the instance. What remains untested is
-the tunnel, which needs a Cloudflare account.
+**Everything in the boot path has now been run for real** — the image build, the
+migrations, the seed, and the app serving all executed on the instance, and so
+does the tunnel: the deployment is live at
+<https://hiring-pipeline.pranav-bansal.com>, serving the board and the API over
+a named Cloudflare Tunnel with a systemd unit that survives a reboot.
+
+The tunnel step caught one more defect, this one in the *runbook* rather than
+the boot: it read the tunnel's UUID by globbing `~/.cloudflared/*.json` and
+taking `head -1`. That works exactly until a second tunnel exists on the box,
+at which point it silently picks the wrong credentials file — and the failure
+surfaces much later, as a tunnel that connects and serves 404s. The runbook
+captures the UUID from `cloudflared tunnel create` output instead.
 
 ### What the second boot actually produced
 
@@ -85,6 +94,12 @@ the loop doing exactly what it exists for.
 All eight of the brief's example searches were run against the deployed app and
 behave as the README documents, including `sharam` → 1 result and the
 explanatory 422 for a query the parser cannot read.
+
+The three security properties were checked against the running instance rather
+than inferred from the configuration: `grep -c ANTHROPIC .env` returns 0 and so
+does the container's own environment; the security group holds one rule (SSH
+from a single address) and ports 8000 and 5432 both **time out** when probed
+from outside; and every search above returned data with no credential.
 
 ## Teardown
 

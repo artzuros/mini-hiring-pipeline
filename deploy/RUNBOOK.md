@@ -23,9 +23,12 @@ brew install awscli           # AWS CLI v2
 aws configure                 # paste an access key for a user who can make EC2 resources
 ```
 
-Region: **`ap-south-1`** (Mumbai) is assumed throughout, since the machine is
-on IST — lower latency from here than `us-east-1`, and the same price. Set it
-in `aws configure` or pass `--region` everywhere.
+Region: **`us-east-1`** — what this deployment actually used. It matches the
+AWS CLI's configured default and the account's other instance, so no command
+needs an explicit `--region` and none can silently land somewhere else. The
+trade is latency from India: `ap-south-1` (Mumbai) would cut roughly 150–200ms
+from a request made on IST. Nothing below is region-specific — the AMI path in
+step 3 is region-scoped and resolves in both.
 
 You also need a domain on Cloudflare. The tunnel can only route a hostname
 whose DNS Cloudflare manages.
@@ -123,21 +126,36 @@ you open on your own machine).
 ssh -i ~/.ssh/mini-hiring.pem ubuntu@<public-ip>
 
 cloudflared tunnel login                       # open the printed URL, pick the domain
-cloudflared tunnel create mini-hiring          # prints the tunnel UUID
-cloudflared tunnel route dns mini-hiring hiring.example.com
 
-UUID="$(ls ~/.cloudflared/*.json | head -1 | xargs basename | sed 's/\.json//')"
+# `create` prints the UUID. Capture it from that output rather than globbing
+# ~/.cloudflared/*.json afterwards: the glob's `head -1` silently picks the
+# wrong credentials file the moment a second tunnel exists on the box, and the
+# failure surfaces much later as a tunnel that connects and serves 404s.
+#
+# If the tunnel already exists, `create` refuses; read the UUID from
+# `cloudflared tunnel list` instead.
+UUID="$(cloudflared tunnel create mini-hiring | awk '/with id/{print $NF; exit}')"
+echo "$UUID"                                   # cd0558af-65b5-4e93-b877-d2bf871e3f83
+
+cloudflared tunnel route dns mini-hiring hiring-pipeline.pranav-bansal.com
+
 sudo mkdir -p /etc/cloudflared
 sudo cp ~/.cloudflared/"$UUID".json /etc/cloudflared/
+sudo chmod 600 /etc/cloudflared/"$UUID".json
 
 cd /opt/mini-hiring
-sed "s/__TUNNEL_ID__/$UUID/; s/__HOSTNAME__/hiring.example.com/" \
+sed "s/__TUNNEL_ID__/$UUID/; s/__HOSTNAME__/hiring-pipeline.pranav-bansal.com/" \
   deploy/cloudflared.yml > /tmp/config.yml
-cloudflared tunnel --config /tmp/config.yml ingress validate
+cloudflared tunnel --config /tmp/config.yml ingress validate    # expect: OK
 sudo mv /tmp/config.yml /etc/cloudflared/config.yml
 
 sudo cloudflared service install               # reads /etc/cloudflared/config.yml
+systemctl is-active cloudflared                # expect: active
 ```
+
+`cloudflared service install` prints `Linux service for cloudflared installed
+successfully` and enables the unit, so it comes back after a reboot without
+anything further.
 
 Finally, the one thing the security group cannot do for you: **the tunnel
 hostname must not also be a public A record.** Cloudflare creates a CNAME to
@@ -149,13 +167,17 @@ tunnel and hit whatever it points at. Delete it.
 From your own machine:
 
 ```bash
-curl -fsS https://hiring.example.com/health          # {"status":"ok"}
+curl -fsS https://hiring-pipeline.pranav-bansal.com/health    # {"status":"ok"}
 
 # The brief's example searches, which should answer as the README documents.
-curl -fsS 'https://hiring.example.com/search?q=Find+Priya+Sharma'
-curl -fsS 'https://hiring.example.com/search?q=stuck+in+Screening+for+more+than+a+week'
-curl -fsS 'https://hiring.example.com/search?q=asdkfjasldkfj'   # the explanatory 422
+# `/search` returns a bare JSON array, not an object with a `results` key.
+curl -fsS 'https://hiring-pipeline.pranav-bansal.com/search?q=Find+Priya+Sharma'
+curl -fsS 'https://hiring-pipeline.pranav-bansal.com/search?q=stuck+in+Screening+for+more+than+a+week'
+curl -fsS 'https://hiring-pipeline.pranav-bansal.com/search?q=asdkfjasldkfj'   # the explanatory 422
 ```
+
+All eight of the README's examples were run this way against the live URL and
+return what that table says.
 
 And the two properties that matter most:
 
@@ -172,6 +194,24 @@ aws ec2 describe-security-groups --group-ids "$SG" \
   --query 'SecurityGroups[0].IpPermissions[].FromPort'
 # [22]
 ```
+
+Do not stop at the security group description, which says only what was
+*configured*. Probe the ports, which says what is *reachable*:
+
+```bash
+for p in 22 8000 5432; do
+  nc -z -G 5 <public-ip> "$p" && echo "$p OPEN" || echo "$p filtered"
+done
+# 22 OPEN, 8000 filtered, 5432 filtered
+```
+
+`filtered` — a timeout, not a refusal — is the security group dropping the
+packet, and it is the correct answer. A *refused* connection would mean
+something is listening behind a rule that should not be there.
+
+One gotcha if you script this rather than using `curl`: Cloudflare answers
+Python's default `urllib` User-Agent with a 403 **HTML** page, so a script that
+expects JSON fails with a parse error rather than a status code. Set a UA.
 
 ---
 

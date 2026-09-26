@@ -17,6 +17,7 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 REPO_URL = "https://github.com/artzuros/mini-hiring-pipeline"
+LIVE_URL = "https://hiring-pipeline.pranav-bansal.com"
 
 #: fpdf2 reserves the style letters B and I, so the monospace face is
 #: registered as a separate *family* rather than a style of `body`.
@@ -182,7 +183,16 @@ def build(output: Path) -> None:
     )
     pdf.set_font("body", "", 9.5)
     pdf.set_text_color(*ACCENT)
-    pdf.cell(0, 5, REPO_URL, link=REPO_URL, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    # Both links on one line, and the widths are measured rather than guessed:
+    # `cell(0, ...)` takes the whole line and drops the second link underneath
+    # anyway. The page budget here is real -- this document has to stay at two
+    # pages, and one extra 5pt line of URL was part of what spilled it to three.
+    # The Deployment paragraph was trimmed to pay for it.
+    code, live = f"Code: {REPO_URL}", f"Live: {LIVE_URL}"
+    pdf.cell(pdf.get_string_width(code) + 1, 5, code, link=REPO_URL,
+             new_x=XPos.RIGHT, new_y=YPos.TOP)
+    pdf.cell(pdf.get_string_width(live) + 1, 5, live, link=LIVE_URL,
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_text_color(*INK)
     pdf.hairline()
 
@@ -343,12 +353,11 @@ def build(output: Path) -> None:
 
     pdf.h2("Deployment")
     pdf.para(
-        "Prepared, not launched: the build machine has no AWS credentials, and "
-        "deploy/README.md records which parts are verified. One small EC2 instance runs the "
-        "same compose file as local, Postgres included, behind a Cloudflare Tunnel - binding "
-        "loopback, so the security group opens only SSH, and carrying no API key, so search "
-        "degrades to the rules that answer the examples above. No authentication either, "
-        "deliberately: anyone with the link can write."
+        f"Live at {LIVE_URL}: one small EC2 instance runs the same compose file as local, "
+        "Postgres included, behind a Cloudflare Tunnel - binding loopback, so the security "
+        "group opens only SSH, and carrying no API key, so search degrades to the rules that "
+        "answer the examples above. No authentication either, deliberately: anyone with the "
+        "link can write. deploy/README.md records what was and was not exercised."
     )
 
     pdf.output(str(output))
