@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ candidate.name }}{% endblock %}
+
+{% block content %}
+
+<p style="margin:0 0 14px"><a href="/">&larr; Back to the pipeline</a></p>
+
+{% if flash %}
+  <div class="notice {{ 'bad' if flash_kind == 'bad' else '' }}">{{ flash }}</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin:0 0 12px; font-size:19px">{{ candidate.name }}</h2>
+  <dl class="facts">
+    <dt>Current stage</dt>
+    <dd>
+      <span class="badge {{ candidate.current_stage.value }}">{{ candidate.current_stage.value }}</span>
+      {% if candidate.current_stage.value not in terminal %}
+        <form method="post" action="/ui/candidates/{{ candidate.id }}/advance" style="display:inline">
+          <input type="hidden" name="next" value="/ui/candidates/{{ candidate.id }}">
+          <button class="small primary" type="submit">Move to {{ next_stage }}</button>
+        </form>
+        <form method="post" action="/ui/candidates/{{ candidate.id }}/reject" style="display:inline">
+          <input type="hidden" name="next" value="/ui/candidates/{{ candidate.id }}">
+          <button class="small danger" type="submit">Reject</button>
+        </form>
+      {% else %}
+        <span class="meta" style="color:var(--muted);font-size:13px">
+          &mdash; terminal, no further moves are possible
+        </span>
+      {% endif %}
+    </dd>
+
+    <dt>Time in this stage</dt>
+    <dd>
+      {{ time_in_stage | duration }}
+      <span style="color:var(--muted);font-size:13px">
+        (since {{ candidate.current_stage_since | timestamp }})
+      </span>
+    </dd>
+
+    <dt>Email</dt>
+    <dd>{{ candidate.email }}</dd>
+
+    {% if candidate.phone %}
+      <dt>Phone</dt>
+      <dd>{{ candidate.phone }}</dd>
+    {% endif %}
+
+    {% if candidate.resume_url %}
+      <dt>Resume</dt>
+      <dd><a href="{{ candidate.resume_url }}">{{ candidate.resume_url }}</a></dd>
+    {% endif %}
+
+    <dt>Added</dt>
+    <dd>{{ candidate.created_at | timestamp }}</dd>
+  </dl>
+</div>
+
+<div class="card">
+  <h2 style="margin:0 0 4px; font-size:16px">History</h2>
+  <p class="hint" style="margin:0">
+    Append-only. Every row is written once and can never be edited or deleted,
+    including by a direct connection to the database.
+  </p>
+  <table class="history">
+    <thead>
+      <tr>
+        <th>When</th>
+        <th>Move</th>
+        <th>Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for entry in history %}
+        <tr>
+          <td>
+            {{ entry.transitioned_at | timestamp }}
+            <div style="color:var(--muted);font-size:12px">{{ entry.transitioned_at | ago }} ago</div>
+          </td>
+          <td>
+            {% if entry.from_stage %}
+              <span class="badge">{{ entry.from_stage.value }}</span>
+              <span class="arrow">&rarr;</span>
+            {% endif %}
+            <span class="badge {{ entry.to_stage.value }}">{{ entry.to_stage.value }}</span>
+            {% if not entry.from_stage %}
+              <span style="color:var(--muted);font-size:12px">(added to the pipeline)</span>
+            {% endif %}
+          </td>
+          <td>{{ entry.note or "" }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

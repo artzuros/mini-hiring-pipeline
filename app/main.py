@@ -100,6 +100,9 @@ async def health() -> dict[str, str]:
 
 from app.api.routers import candidates as candidates_router  # noqa: E402
 from app.api.routers import search as search_router  # noqa: E402
+from app.web import routes as web_router  # noqa: E402
 
 app.include_router(candidates_router.router)
 app.include_router(search_router.router)
+# Mounted last so `/` and the HTML form actions cannot shadow an API route.
+app.include_router(web_router.router)

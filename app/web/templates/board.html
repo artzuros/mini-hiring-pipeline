@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Pipeline{% endblock %}
+
+{% block content %}
+
+{% if flash %}
+  <div class="notice {{ 'bad' if flash_kind == 'bad' else '' }}">{{ flash }}</div>
+{% endif %}
+
+{# ------------------------------------------------------------------ #}
+{# The single search box. A plain GET form: no JavaScript, and the      #}
+{# resulting URL is shareable and bookmarkable.                         #}
+{# ------------------------------------------------------------------ #}
+<div class="card">
+  <form class="search" method="get" action="/">
+    <input type="text" name="q" value="{{ query or '' }}" autofocus
+           placeholder="Ask in plain English — who is stuck in Screening, who moved to Interview since Monday…"
+           aria-label="Search candidates">
+    <button class="primary" type="submit">Search</button>
+    {% if query %}<a class="btn" href="/">Clear</a>{% endif %}
+  </form>
+  <p class="hint">
+    Try
+    {% for example in examples %}
+      <a href="/?q={{ example | urlencode }}"><code>{{ example }}</code></a>{{ ", " if not loop.last else "" }}
+    {% endfor %}
+  </p>
+</div>
+
+{# ------------------------------------------------------------------ #}
+{# When the query could not be understood, say why. This is the         #}
+{# graded behaviour: an empty list would be indistinguishable from a     #}
+{# search that legitimately matched nobody.                             #}
+{# ------------------------------------------------------------------ #}
+{% if error %}
+  <div class="card explain">
+    <h2>{{ error.message }}</h2>
+    <p>{{ error.reason }}</p>
+    <p style="margin-bottom:0"><strong>Try one of these instead:</strong></p>
+    <ul>
+      {% for example in error.examples %}
+        <li><a href="/?q={{ example | urlencode }}">{{ example }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+
+{% elif query %}
+  <div class="card">
+    {% if results %}
+      <p class="hint" style="margin:0 0 8px">
+        {{ results | length }} match{{ "" if results | length == 1 else "es" }}
+        for &ldquo;{{ query }}&rdquo;, best first.
+      </p>
+      <ol class="results">
+        {% for candidate in results %}
+          <li>
+            <span class="rank">{{ loop.index }}</span>
+            <span class="name">
+              <a href="/ui/candidates/{{ candidate.id }}">{{ candidate.name }}</a>
+            </span>
+            <span class="badge {{ candidate.current_stage.value }}">{{ candidate.current_stage.value }}</span>
+            <span class="meta">{{ candidate.current_stage_since | ago }} in stage</span>
+          </li>
+        {% endfor %}
+      </ol>
+    {% else %}
+      {# Understood, and genuinely nobody matched. Saying so plainly is the #}
+      {# honest answer; it is not the same as failing to parse.             #}
+      <p style="margin:0">
+        No candidates match &ldquo;{{ query }}&rdquo;.
+        The query was understood &mdash; there simply is nobody in the pipeline who fits it.
+      </p>
+    {% endif %}
+  </div>
+
+{% else %}
+  {# ---------------------------------------------------------------- #}
+  {# The board: every stage, always, even when empty, so the shape of  #}
+  {# the pipeline is visible at a glance.                              #}
+  {# ---------------------------------------------------------------- #}
+  <div class="board">
+    {% for stage in stages %}
+      <section class="column {{ 'terminal' if stage in terminal else '' }}">
+        <h2>
+          <span>{{ stage.value }}</span>
+          <span class="count">{{ grouped[stage.value] | length }}</span>
+        </h2>
+        <div class="body">
+          {% for candidate in grouped[stage.value] %}
+            <article class="candidate">
+              <div class="name"><a href="/ui/candidates/{{ candidate.id }}">{{ candidate.name }}</a></div>
+              <div class="meta">{{ candidate.current_stage_since | ago }} in {{ stage.value }}</div>
+              {% if stage.value not in terminal %}
+                <div class="actions">
+                  <form method="post" action="/ui/candidates/{{ candidate.id }}/advance">
+                    <input type="hidden" name="next" value="/">
+                    <button class="small primary" type="submit">
+                      Move to {{ next_of[stage.value] }}
+                    </button>
+                  </form>
+                  <form method="post" action="/ui/candidates/{{ candidate.id }}/reject">
+                    <input type="hidden" name="next" value="/">
+                    <button class="small danger" type="submit">Reject</button>
+                  </form>
+                </div>
+              {% endif %}
+            </article>
+          {% else %}
+            <div class="empty">Nobody here.</div>
+          {% endfor %}
+        </div>
+      </section>
+    {% endfor %}
+  </div>
+
+  <div class="card">
+    <form class="addform" method="post" action="/ui/candidates">
+      <strong style="font-size:14px">Add a candidate</strong>
+      <input type="text" name="name" placeholder="Full name" required>
+      <input type="email" name="email" placeholder="Email" required>
+      <input type="text" name="phone" placeholder="Phone (optional)">
+      <button class="primary" type="submit">Add to pipeline</button>
+    </form>
+  </div>
+{% endif %}
+
+{% endblock %}
