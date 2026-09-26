@@ -6,7 +6,11 @@
 #
 # To get the sample data that makes the example queries meaningful:
 #
-#     docker compose exec app python scripts/seed.py
+#     docker compose exec app python scripts/seed.py --yes
+#
+# `--yes` is required, and not a formality: seeding truncates the candidates
+# and their history. The flag is what stops a script from emptying a database
+# by being run, and this is the one caller that means it.
 #
 # This is an alternative to the project-local Postgres cluster that
 # `scripts/db.sh` manages. Both are supported; use whichever you have. The
