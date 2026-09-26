@@ -23,6 +23,8 @@ dev = [
     "pytest>=8.2",
     "pytest-asyncio>=0.23",
     "httpx>=0.27",
+    # Only needed to regenerate the summary PDF: python scripts/make_pdf.py
+    "fpdf2>=2.8",
 ]
 
 [build-system]
