@@ -1,0 +1,24 @@
+# Keep the build context small and make sure nothing local leaks into the
+# image. `.env` matters most: it holds a real API key and would otherwise be
+# baked into a layer that anyone who pulls the image can read.
+.env
+.venv/
+.pgdata/
+.pglog
+.git/
+.gitignore
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.DS_Store
+tests/
+ai-logs/
+PLAN.MD
+README.md
+docker-compose.yml
+Dockerfile
+.dockerignore

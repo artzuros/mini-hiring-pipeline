@@ -1,0 +1,51 @@
+# The whole app, from nothing, with one command:
+#
+#     docker compose up --build
+#
+# Then open http://localhost:8000 for the board, or /docs for the API.
+#
+# To get the sample data that makes the example queries meaningful:
+#
+#     docker compose exec app python scripts/seed.py
+#
+# This is an alternative to the project-local Postgres cluster that
+# `scripts/db.sh` manages. Both are supported; use whichever you have. The
+# app itself does not care -- it only reads DATABASE_URL.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hiring
+    ports:
+      # 5433 on the host, matching the port `scripts/db.sh` uses, so the two
+      # setups do not collide and so DATABASE_URL is the same either way.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # The app waits for this rather than sleeping and hoping.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hiring"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/hiring
+      # Optional. Without a key, search still works -- the rule-based parser
+      # handles every example query in the assignment. The model is only
+      # consulted for phrasing the rules cannot read.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SEARCH_LLM_FALLBACK_ENABLED: ${SEARCH_LLM_FALLBACK_ENABLED:-true}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
