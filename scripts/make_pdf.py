@@ -224,13 +224,20 @@ def build(output: Path) -> None:
         "queries that work - never an empty list, which would be indistinguishable from a "
         "successful search that found nobody."
     )
+    pdf.ln(1)
+    pdf.para(
+        "Note text is searched too, but only after names and after the model: a note reading "
+        "\"this is a goat\" is found by searching goat. The report that prompted this blamed the "
+        "name threshold; the real cause was that note text was never searched. Sitting last, "
+        "the fallback can only turn a 422 into a 200 - no answer that already worked can change."
+    )
 
     pdf.h2("Architecture")
     pdf.ln(1)
     architecture_diagram(pdf)
     pdf.ln(1)
     pdf.kv("Stack", "Python 3.12, FastAPI, SQLAlchemy 2 async + asyncpg, Alembic, Postgres 16 (pg_trgm), Pydantic v2, Jinja2, pytest.")
-    pdf.kv("Tests", "201 passing. None touch the network; the model fallback runs against a scripted fake.")
+    pdf.kv("Tests", "261 passing. None touch the network; the model fallback runs against a scripted fake.")
     pdf.kv("Run it", "docker compose up --build, or ./scripts/db.sh start + alembic upgrade head + uvicorn.")
 
     # ================= PAGE 2 =================
@@ -240,6 +247,12 @@ def build(output: Path) -> None:
         "Immutability is a database trigger, not a convention. An audit trail that holds only "
         "as long as nobody opens psql is not an audit trail. The cost was switching test "
         "cleanup from DELETE to TRUNCATE, which does not fire row triggers."
+    )
+    pdf.bullet(
+        "Recruiter notes are a second append-only table with their own trigger function, not "
+        "extra rows in the audit trail. A note is not a move, and a shared table would have "
+        "forced to_stage to become nullable -- at which point \"who reached Offer\" starts "
+        "matching rows that moved nobody anywhere."
     )
     pdf.bullet(
         "One clock: Postgres now(), never Python. now() is the transaction timestamp, so "
@@ -257,6 +270,11 @@ def build(output: Path) -> None:
     pdf.bullet(
         "pg_trgm rather than a fuzzy-matching library: the database already does it, with an "
         "index, instead of loading every name into memory to compare in Python."
+    )
+    pdf.bullet(
+        "Note search matches whole words, not trigrams. similarity('goat', 'goal') is 0.429 - "
+        "above the name threshold - so a fuzzy note search would answer \"goat\" with everyone "
+        "who wrote down a goal."
     )
 
     pdf.h2("Where I disagreed with the AI")
@@ -318,8 +336,9 @@ def build(output: Path) -> None:
         "transpositions by construction; a Damerau-Levenshtein pass on tokens would catch them."
     )
     pdf.bullet(
-        "Pagination on GET /candidates, and notes on transitions in the UI (the API already "
-        "stores them; the board does not collect them)."
+        "Pagination on GET /candidates. The board already eager-loads each candidate's "
+        "transitions and notes, which is one extra query per load at this scale and would "
+        "not be at a few thousand."
     )
 
     pdf.h2("Deployment")

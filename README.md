@@ -75,7 +75,7 @@ No `ANTHROPIC_API_KEY` is required. Search works fully without one — see
 .venv/bin/python -m pytest
 ```
 
-201 tests. **None of them touch the network** — the LLM fallback is exercised
+261 tests. **None of them touch the network** — the LLM fallback is exercised
 through a scripted fake client, so the suite runs offline and without a key.
 
 ---
@@ -86,10 +86,11 @@ through a scripted fake client, so the suite runs offline and without a key.
 |---|---|---|
 | `POST` | `/candidates` | Add a candidate (starts in `applied`) |
 | `GET` | `/candidates` | List, optionally `?group_by=stage` |
-| `GET` | `/candidates/{id}` | One candidate, with full history |
-| `GET` | `/candidates/{id}/history` | Just the history |
+| `GET` | `/candidates/{id}` | One candidate, with full timeline |
+| `GET` | `/candidates/{id}/history` | Just the timeline |
 | `POST` | `/candidates/{id}/advance` | Move forward exactly one stage |
 | `POST` | `/candidates/{id}/reject` | Reject |
+| `POST` | `/candidates/{id}/notes` | Append a note (not a stage change) |
 | `GET` | `/search?q=…` | The search box, as an endpoint |
 | `GET` | `/health` | Liveness |
 
@@ -119,9 +120,16 @@ against the seed data:
 They combine: `Priya in Screening for more than a week except rejected` applies
 all four criteria at once. Results are ranked best-match-first.
 
+**Notes are searched too, but only last.** A note reading *"this is a goat"* is
+found by searching `goat`. Names are matched exactly as they always were, and
+note text is consulted only when a bare-name query has already matched nobody
+and the model found no structure either — see
+[below](#notes-as-a-last-resort) for why that ordering is the point rather than
+an implementation detail.
+
 ### How it works
 
-Rules first, model second.
+Rules first, model second, notes last.
 
 1. **`rules.py`** — seven ordered regex passes turn the text into a
    `SearchFilter`: exclusions, negated outcomes, `reached`, `stuck`,
@@ -134,6 +142,54 @@ Rules first, model second.
    query at all. Returns `None` on any problem (no key, timeout, 5xx,
    malformed JSON), which degrades to "rules only" rather than an error. An
    optional dependency must never be able to break search.
+4. **`executor.find_by_note_text`** — the last resort. Runs only where the
+   alternative is the explanatory 422.
+
+### Notes as a last resort
+
+The trigger for this feature was a bug report that turned out not to be what
+it looked like. A recruiter noted *"this is a goat"* on a candidate, searched
+`goat`, and got nothing — while `goat person` found them. The obvious reading
+is "the name matcher is too strict." It is not:
+
+```
+similarity('goat', 'person')  ->  0.000
+similarity('goat', 'goat')    ->  1.000
+```
+
+`goat person` matched on the *word* `person` scoring 1.0, averaged with `goat`
+at 0.0 for 0.5 — comfortably over the 0.35 threshold. It was matching the
+stored **name**, not the note. And `similarity('goat', 'person')` is 0.000, not
+0.34: no threshold exists that would let `goat` match a candidate whose name
+merely doesn't contain it. Note text was never searched at all. Lowering the
+threshold would have made `goat` match every Dave *Go*mez and *Go*ldstein in
+the pipeline.
+
+So notes are now searched — but the ordering is the design, not the plumbing.
+The note search sits on the *one* path that was already about to raise the
+explanatory 422, which gives a property worth more than the feature:
+
+> A query that returned results before this existed still returns exactly the
+> same results. The change can turn a 422 into a 200 and it cannot do anything
+> else.
+
+Matching is by **exact word**, not by trigram similarity, and that is a
+deliberate reversal of the choice made for names. Names are short and
+typo-prone, so fuzzy matching earns its keep there. Notes are prose:
+`similarity('goat', 'goal')` is **0.429**, so a fuzzy pass at the 0.35 name
+threshold would return every note mentioning a *goal* for a search for *goat*.
+A near-miss in prose is far more likely to be a different word than a
+misspelling. Words are split on every non-alphanumeric character, so
+`"this is a goat."` yields `goat` rather than `goat.`; multi-word queries AND
+their tokens, and results are ordered by the newest matching note.
+
+**The trade-off, stated plainly:** the same query returns different *kinds* of
+thing depending on unrelated data. If a candidate were literally named `Goat`,
+the name filter would match them and the note would never be consulted. The
+query means "names, unless no name matches, in which case notes." That is a
+genuine behaviour, not a free win — the alternative, searching both at once,
+buys consistency by making every name search slower and every result set
+harder to explain.
 
 ### Why the answer is sometimes a 422, deliberately
 
@@ -149,8 +205,9 @@ The awkward case is a bare name, because `Priya Sharma` and `asdkfjasldkfj`
 are the same shape to a parser — both are leftover text that could be a
 surname. They are distinguishable by *outcome*: one matches a candidate, the
 other does not. So a bare-name guess that matches nobody is treated as "not
-understood": the model gets one chance to see structure the rules missed, and
-if that fails too you get the explanatory 422.
+understood": the model gets one chance to see structure the rules missed, the
+notes get one chance in case the recruiter was remembering something written
+down rather than a name, and if all three fail you get the explanatory 422.
 
 **The trade-off, stated plainly:** searching for a real person who is genuinely
 not in the pipeline *also* produces that 422. The error names the name you
@@ -198,6 +255,13 @@ that raise `restrict_violation`. The app never updates or deletes a transition
 — but "the app never does" is a convention, and conventions erode. An audit
 trail that holds only as long as nobody opens `psql` is not an audit trail.
 
+`candidate_notes` — the append-only notes added later — gets the same
+treatment from its own trigger function. Deliberately its own, not a reuse of
+the transition one: that function's message names `stage_transitions`, and a
+rejected note edit that blames the wrong table sends the reader looking in the
+wrong place. There is a test asserting the note's error names `candidate_notes`
+and *not* `stage_transitions`.
+
 The cost is that test cleanup had to switch from `DELETE` to `TRUNCATE`
 (which is statement-level and does not fire row triggers). That is a good
 trade: it made the immutability real, and the test suite caught the one place
@@ -209,7 +273,12 @@ that had been relying on `DELETE` working.
 transaction sees the identical instant. Writing `current_stage_since` and the
 audit row's `transitioned_at` in the same transaction means they are equal by
 construction, not by luck. There is a test asserting exact equality between
-`current_stage_since` and the last history row.
+`current_stage_since` and the last *transition* in the timeline.
+
+That qualifier matters now that notes share the timeline. A note is written
+after the move it follows, so "the last entry" and "the last transition" are
+no longer the same thing — a test pins that a trailing note does not make the
+candidate look like they moved.
 
 It also means "stuck for more than a week" is measured against the same clock
 that wrote the timestamp, instead of comparing a database value to Python's
@@ -243,6 +312,32 @@ something odd yesterday" untraceable.
 Postgres ships trigram matching. Adding a Python fuzzy library would mean
 loading every candidate name into memory to score it, plus another dependency,
 to reproduce something the database already does with an index.
+
+### 7. Note search is a last resort, and matches whole words
+
+Answered in full [above](#notes-as-a-last-resort). The two decisions worth
+restating as decisions rather than mechanics:
+
+**Placed last, after the model.** Not for accuracy — for provability. Sitting
+on the single path that was about to raise means the feature cannot alter any
+response that already worked, and a test asserts exactly that by giving a
+candidate the name `Goat Person` and a *different* candidate a note reading
+"this is a goat", then requiring that searching `goat` returns only the first.
+
+**Exact words, not trigrams.** The opposite of decision #6, on purpose. The
+name matcher is fuzzy because names are short and misspelled; note text is
+prose, and `similarity('goat', 'goal')` is 0.429 — above the name threshold —
+so a fuzzy note search would answer `goat` with everyone who wrote down a
+*goal*. Two matchers, two domains, two answers, each written down with the
+measurement that forced it.
+
+Writing the SQL also turned up a bug worth recording, because it was invisible
+in review and obvious under test: left to infer its own `FROM`, SQLAlchemy put
+`candidates` *inside* the `EXISTS` and correlated the wrong side, producing an
+unconstrained inner scan — so the subquery came out true for **every**
+candidate as soon as any note anywhere contained the word. Stating the `FROM`
+explicitly fixed it, and a test named `test_only_the_candidates_own_notes_are_searched`
+now fails loudly if it ever comes back.
 
 ---
 
@@ -362,9 +457,17 @@ or not — and made the other two functions thin wrappers over it.
 
 **Product**
 
-- Notes on transitions are supported by the API (`note` is on every audit row)
-  but the UI does not collect them. That is the cheapest real improvement here.
+- Notes on transitions are collected by neither the API's advance/reject
+  callers nor the board's buttons — the field is there on every audit row and
+  the note form on the candidate page writes standalone notes, but the move
+  buttons themselves still send no note. Wiring a note box into the move
+  buttons is the cheapest remaining improvement.
 - The board polls nothing; it is render-on-request by design.
+- `GET /candidates` has no pagination, and the board page now eager-loads
+  notes for every candidate on it (`lazy="selectin"`), even though only the
+  detail page renders them. At this scale it is one extra query per board
+  load; at a few thousand candidates it would want `selectinload` restricted
+  to the detail path.
 
 ---
 
