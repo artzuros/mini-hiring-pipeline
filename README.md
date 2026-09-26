@@ -26,7 +26,7 @@ Two ways. Both give you the same app on <http://localhost:8000>.
 
 ```bash
 docker compose up --build
-docker compose exec app python scripts/seed.py   # optional sample data
+docker compose exec app python scripts/seed.py --yes   # optional sample data
 ```
 
 Open <http://localhost:8000> for the board, or <http://localhost:8000/docs>
@@ -57,7 +57,9 @@ cp .env.example .env
 .venv/bin/alembic upgrade head
 
 # 4. Sample data (15 candidates with backdated history — see below).
-.venv/bin/python scripts/seed.py
+#    `--yes` because the loader truncates both tables first; without it the
+#    script explains that and exits without touching anything.
+.venv/bin/python scripts/seed.py --yes
 
 # 5. Serve.
 .venv/bin/uvicorn app.main:app --reload
@@ -75,8 +77,41 @@ No `ANTHROPIC_API_KEY` is required. Search works fully without one — see
 .venv/bin/python -m pytest
 ```
 
-261 tests. **None of them touch the network** — the LLM fallback is exercised
+271 tests. **None of them touch the network** — the LLM fallback is exercised
 through a scripted fake client, so the suite runs offline and without a key.
+
+Ten of those (`tests/test_hardening.py`) exist because of the deployment: a
+health check that must be able to fail, a bound on the length of a search
+query, an error handler for exceptions nobody predicted, and a fixture loader
+that must not fire by accident.
+
+---
+
+## Deployment
+
+The app is deployable to a single small EC2 instance behind a Cloudflare
+Tunnel, and the artifacts are in [`deploy/`](deploy/) with a step-by-step
+[runbook](deploy/RUNBOOK.md). **It has not been launched**, because the
+machine this was built on has no AWS credentials — `deploy/README.md` records
+exactly which parts are verified and which are not.
+
+Three things about the shape are worth stating plainly, because two of them
+are security decisions:
+
+- **Nothing on the instance is open to the internet.** The app binds
+  `127.0.0.1:8000` and Postgres binds nothing at all; `cloudflared` dials out
+  to Cloudflare's edge and requests come back down that connection. The
+  security group allows SSH and nothing else, so the usual "just open the port
+  to check" is not available and is not needed.
+- **There is no API key on the box.** The LLM fallback is disabled and
+  `ANTHROPIC_API_KEY` is empty. Search degrades to the rule parser, which
+  alone answers every example in the brief — and nobody who finds the URL can
+  spend money through it.
+- **There is no authentication, and that is deliberate.** Anyone with the link
+  can add candidates, move them, reject them, and write notes. Hiding the URL
+  is not access control; the honest position is that access control belongs at
+  the edge for a demo, and that this must not be carried into anything real.
+  `deploy/RUNBOOK.md` ends with the same list.
 
 ---
 
@@ -92,7 +127,7 @@ through a scripted fake client, so the suite runs offline and without a key.
 | `POST` | `/candidates/{id}/reject` | Reject |
 | `POST` | `/candidates/{id}/notes` | Append a note (not a stage change) |
 | `GET` | `/search?q=…` | The search box, as an endpoint |
-| `GET` | `/health` | Liveness |
+| `GET` | `/health` | Liveness **and** readiness — 503 if Postgres is unreachable |
 
 Errors are never bare. An illegal move returns **422** with a message saying
 *which rule* stopped it (`"Cannot skip from 'applied' to 'interview'"`); a
@@ -222,17 +257,22 @@ blank page — the honest answer to "why is there nothing here?" is almost alway
 ```
 app/
   domain/pipeline.py        The state machine. Pure. No DB, no HTTP, no I/O.
-  models/                   SQLAlchemy ORM: candidates, stage_transitions.
+  models/                   SQLAlchemy ORM: candidates, stage_transitions,
+                            candidate_notes.
   repositories/             Queries only. No business rules.
   services/                 Transaction boundaries and orchestration.
     candidate_service.py      create / advance / reject / group_by_stage
     search/                   rules → executor → llm_fallback, via `service.py`
   api/                      JSON: routers + serializers. Thin.
-  web/                      HTML: one board page, one candidate page.
+  web/                      HTML: board page, candidate page, note form.
   main.py                   App assembly and the global error contract.
-migrations/                 Alembic. 0002 creates the tables and the triggers.
-scripts/db.sh               Project-local Postgres cluster.
-scripts/seed.py             Backdated sample data.
+deploy/                     AWS + Cloudflare artifacts. See deploy/RUNBOOK.md.
+migrations/                 Alembic. 0002 creates the tables and triggers,
+                            0003 adds candidate_notes.
+scripts/db.sh               Project-local Postgres cluster (dev only; it is
+                            deliberately not copied into the image).
+scripts/seed.py             Backdated sample data. Refuses to run without --yes.
+scripts/export_ai_log.py    Renders the Claude Code transcript in ai-logs/.
 ```
 
 Layers point inwards. `domain/` imports nothing from the app. `services/` own
@@ -473,6 +513,37 @@ or not — and made the other two functions thin wrappers over it.
 
 ## AI chat logs
 
-The full session transcript, including the wrong turns, is in
-[`ai-logs/`](ai-logs/). The name-matcher failure above is in there as it
-happened — proposed, measured, contradicted, replaced.
+The full transcripts, including the wrong turns, are in [`ai-logs/`](ai-logs/):
+
+| File | Session |
+|---|---|
+| [`01-build-session.md`](ai-logs/01-build-session.md) | The build: schema, domain, search, the UI, and the name-matcher reversal. |
+| [`02-notes-and-search.md`](ai-logs/02-notes-and-search.md) | Recruiter notes, and the "this is a goat" bug report that followed them. |
+| [`03-deliverables-and-deploy.md`](ai-logs/03-deliverables-and-deploy.md) | The AI-log export itself, the deployment artifacts, and the hardening. |
+
+The name-matcher failure above is in the first one as it happened — proposed,
+measured, contradicted, replaced. The second is worth reading for a
+measurement that went *against* the obvious fix: the reported search bug
+looked like a threshold set too high, and `similarity('goat', 'person')` is
+0.000, so there was no threshold to lower.
+
+They are generated, not hand-maintained, by
+[`scripts/export_ai_log.py`](scripts/export_ai_log.py):
+
+```bash
+# One transcript file accumulates every session, so a window selects one.
+.venv/bin/python scripts/export_ai_log.py <transcript.jsonl> ai-logs/03-….md \
+    --since 2026-09-26T08:10:00 --title "AI chat log — Mini Hiring Pipeline" \
+    --note "**What this session covers.** …"
+
+# Re-apply the redaction rules to a log exported earlier, in place.
+.venv/bin/python scripts/export_ai_log.py --scrub ai-logs/01-build-session.md
+```
+
+Tool results are omitted rather than truncated — their full contents are the
+files in this repository. Every log passes through a redaction table on the
+way out (a personal email address, the AI attribution trailer, and the macOS
+account name, which appears as a path component, in `ls -l` output, and once
+as a fabricated git author address). Keeping that table in the exporter rather
+than editing files by hand is why `--scrub` exists: a rule added today applies
+to a log published last week, by the same code.

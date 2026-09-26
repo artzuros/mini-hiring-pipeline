@@ -237,7 +237,7 @@ def build(output: Path) -> None:
     architecture_diagram(pdf)
     pdf.ln(1)
     pdf.kv("Stack", "Python 3.12, FastAPI, SQLAlchemy 2 async + asyncpg, Alembic, Postgres 16 (pg_trgm), Pydantic v2, Jinja2, pytest.")
-    pdf.kv("Tests", "261 passing. None touch the network; the model fallback runs against a scripted fake.")
+    pdf.kv("Tests", "271 passing. None touch the network; the model fallback runs against a scripted fake.")
     pdf.kv("Run it", "docker compose up --build, or ./scripts/db.sh start + alembic upgrade head + uvicorn.")
 
     # ================= PAGE 2 =================
@@ -343,12 +343,12 @@ def build(output: Path) -> None:
 
     pdf.h2("Deployment")
     pdf.para(
-        "Not deployed. The brief's deliverable list does not include a live URL, and the "
-        "container setup is written but unverified - Docker is not installed on the machine "
-        "this was built on, and the README says so rather than implying otherwise. The local "
-        "path is the one that has been run end to end, with the full suite against it. A "
-        "docker-compose.yml, Dockerfile and a migration-then-serve entrypoint are in the repo "
-        "for review."
+        "Prepared, not launched: the build machine has no AWS credentials, and "
+        "deploy/README.md records which parts are verified. One small EC2 instance runs the "
+        "same compose file as local, Postgres included, behind a Cloudflare Tunnel - binding "
+        "loopback, so the security group opens only SSH, and carrying no API key, so search "
+        "degrades to the rules that answer the examples above. No authentication either, "
+        "deliberately: anyone with the link can write."
     )
 
     pdf.output(str(output))
