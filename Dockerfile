@@ -15,7 +15,13 @@ RUN pip install --no-cache-dir .
 
 COPY alembic.ini ./
 COPY migrations ./migrations
-COPY scripts ./scripts
+
+# Named files, not `COPY scripts ./scripts`. The scripts directory also holds
+# `db.sh`, which manages a *local* macOS Postgres cluster over trust auth --
+# meaningless inside this image, and not a thing that should sit one `exec`
+# away in a container. `seed.py` is kept because the README documents it as
+# the way to load sample data; it carries its own confirmation guard.
+COPY scripts/entrypoint.sh scripts/seed.py ./scripts/
 
 RUN chmod +x scripts/entrypoint.sh
 

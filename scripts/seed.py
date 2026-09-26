@@ -1,6 +1,6 @@
 """Load realistic sample data, with backdated history.
 
-Run:  python scripts/seed.py
+Run:  python scripts/seed.py --yes       (it truncates; see the guard at the end)
 
 Why this bypasses the service layer
 -----------------------------------
@@ -298,4 +298,25 @@ async def seed() -> None:
 
 
 if __name__ == "__main__":
+    # `seed()` opens with `TRUNCATE stage_transitions, candidates CASCADE`,
+    # which empties the database before loading the sample pipeline. That is
+    # exactly right for a fixture loader and catastrophic if it runs by
+    # accident -- and "python scripts/seed.py" is a plausible thing to type
+    # while meaning to look at the file. So it refuses without --yes.
+    #
+    # TRUNCATE rather than DELETE is deliberate (see `seed`), which also means
+    # no delete trigger gets a chance to object. The guard is the only thing
+    # standing between this script and the data.
+    if "--yes" not in sys.argv[1:]:
+        print(
+            "Refusing to run.\n\n"
+            "This deletes every candidate and every stage transition, then\n"
+            "reloads the sample pipeline. It is a development fixture loader,\n"
+            "not a migration, and there is no undo.\n\n"
+            "If that is what you want:\n\n"
+            "    python scripts/seed.py --yes\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
     asyncio.run(seed())

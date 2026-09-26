@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy import text
 
-from app.db import dispose_engine
+from app.db import dispose_engine, get_engine
 from app.domain.pipeline import InvalidTransitionError
 from app.services.errors import (
     CandidateNotFoundError,
     DuplicateEmailError,
     UnparseableQueryError,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -93,9 +97,64 @@ async def handle_unparseable_query(
     )
 
 
-@app.get("/health", tags=["meta"], summary="Liveness probe")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+@app.exception_handler(Exception)
+async def handle_unexpected(request: Request, exc: Exception) -> Response:
+    """Last resort: turn an unanticipated error into a readable response.
+
+    Every handler above this one is a *domain* error with something specific
+    to say. This is for the errors nobody planned for -- a bug, a dropped
+    connection, a template that raised -- where the only honest thing to say
+    is "that was us, not you".
+
+    The traceback goes to the log and never to the client. Exception text
+    routinely names file paths, and a database error names the statement that
+    failed; neither belongs in a public response.
+
+    The body follows the caller. A browser sending `Accept: text/html` gets a
+    page it can read; everything else gets the JSON shape the rest of the API
+    uses. FastAPI's default is `text/plain` for both, which is the worst of
+    the two for each.
+    """
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+
+    if "text/html" in request.headers.get("accept", ""):
+        return HTMLResponse(
+            status_code=500,
+            content=(
+                "<!doctype html><html lang=en><title>Something went wrong</title>"
+                "<h1>Something went wrong</h1>"
+                "<p>That was our fault, not yours. The error has been logged.</p>"
+                '<p><a href="/">Back to the pipeline</a></p>'
+            ),
+        )
+    return JSONResponse(
+        status_code=500, content={"detail": "Internal server error."}
+    )
+
+
+@app.get("/health", tags=["meta"], summary="Liveness and readiness probe")
+async def health() -> JSONResponse:
+    """Report whether this process can actually reach its database.
+
+    Returning a constant `{"status": "ok"}` answers 200 while Postgres is
+    unreachable -- which is the one condition a health check exists to catch,
+    and the condition a tunnel, a load balancer, or an uptime monitor most
+    needs to see. So this performs a real round trip and reports 503 when it
+    fails, rather than reporting the state of the *process*.
+
+    The failure detail is logged, not returned: this endpoint is public, and a
+    driver's exception text routinely contains the connection string.
+    """
+    try:
+        async with get_engine().connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except Exception:
+        # Deliberately broad: every way of failing to reach a database counts
+        # as unhealthy, and a narrower `except` would only mean missing one.
+        logger.exception("Health check could not reach the database")
+        return JSONResponse(status_code=503, content={"status": "unavailable"})
+
+    return JSONResponse(status_code=200, content={"status": "ok"})
 
 
 from app.api.routers import candidates as candidates_router  # noqa: E402

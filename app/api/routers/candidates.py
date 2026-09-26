@@ -75,7 +75,7 @@ async def list_candidates(
         default=None,
         description=(
             "Natural-language search query. See `GET /search` for the full "
-            "grammar and the error contract."
+            "grammar, the length limit, and the error contract."
         ),
         examples=["stuck in Screening for more than a week"],
     ),

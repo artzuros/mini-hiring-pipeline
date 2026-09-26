@@ -72,7 +72,11 @@ async def run_search(session: AsyncSession, q: str) -> list[CandidateSummary]:
 )
 async def search(
     q: str = Query(
-        description="The search query.",
+        description=(
+            "The search query. At most "
+            f"{search_service.MAX_QUERY_LENGTH} characters; anything longer "
+            "is rejected with the same 422 as an unreadable query."
+        ),
         examples=["stuck in Screening for more than a week"],
     ),
     session: AsyncSession = Depends(get_session),

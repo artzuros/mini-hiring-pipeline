@@ -36,6 +36,22 @@ from app.models.candidate import Candidate
 from app.services.errors import SEARCH_EXAMPLES, UnparseableQueryError
 from app.services.search import executor, llm_fallback, rules
 
+#: Longest query accepted, in characters.
+#:
+#: A bound exists because a query is not free: it is lowercased, split, and
+#: run through a dozen regular expressions in `rules.parse`, and any leftover
+#: name-shaped text may be sent to `dateparser`. None of that is expensive
+#: for a real query -- the longest of the assignment's examples is 55
+#: characters -- but all of it is linear in the input, on a public endpoint.
+#:
+#: 200 leaves generous room for a pasted paragraph while keeping the work
+#: bounded. It is enforced here rather than with `Query(max_length=...)` at
+#: each entry point so that all three share one limit *and one error shape*:
+#: FastAPI's own validation failure returns a different body from the
+#: three-field contract the rest of the API uses, and on the HTML route it
+#: returns JSON to a browser. Both are worse than the 422 below.
+MAX_QUERY_LENGTH = 200
+
 
 def _nothing_recognised(query: str) -> UnparseableQueryError:
     return UnparseableQueryError(
@@ -65,6 +81,16 @@ async def search(session: AsyncSession, query: str) -> list[Candidate]:
     if not query:
         raise UnparseableQueryError(
             reason="The search box was empty. Type a name, a stage, or a question.",
+            examples=SEARCH_EXAMPLES,
+        )
+
+    if len(query) > MAX_QUERY_LENGTH:
+        raise UnparseableQueryError(
+            reason=(
+                f"That query is {len(query):,} characters long, and the most "
+                f"this search box accepts is {MAX_QUERY_LENGTH}. It reads a "
+                f"name, a stage, or a short question -- not a document."
+            ),
             examples=SEARCH_EXAMPLES,
         )
 
