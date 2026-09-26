@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.db import dispose_engine, get_engine
@@ -163,5 +165,19 @@ from app.web import routes as web_router  # noqa: E402
 
 app.include_router(candidates_router.router)
 app.include_router(search_router.router)
+
+# The web fonts. Resolved from `__file__` rather than a relative path so it
+# holds whether `app` was imported from the source tree or from the installed
+# wheel -- the Dockerfile does both, and a path that only worked for one of
+# them would serve 404s in production and 200s locally.
+#
+# This is the only thing served from disk; nothing here is user-supplied, so
+# there is no path-traversal surface. StaticFiles refuses `..` regardless.
+app.mount(
+    "/static",
+    StaticFiles(directory=Path(__file__).parent / "web" / "static"),
+    name="static",
+)
+
 # Mounted last so `/` and the HTML form actions cannot shadow an API route.
 app.include_router(web_router.router)

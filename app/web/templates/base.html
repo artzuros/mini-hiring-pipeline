@@ -5,22 +5,63 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Hiring Pipeline{% endblock %}</title>
   {# Colours the browser chrome on mobile, so the address bar does not sit at
-     the default white above a cream page. It needs one tag per theme; the
-     `media` attribute is what picks between them. #}
-  <meta name="theme-color" content="#f7f3ea" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#17140f" media="(prefers-color-scheme: dark)">
+     the default white above a tinted page. It needs one tag per theme; the
+     `media` attribute is what picks between them. These two values must track
+     --bg in each theme below, and nothing enforces that but this comment. #}
+  <meta name="theme-color" content="#f5f7f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12161a" media="(prefers-color-scheme: dark)">
+  <link rel="preload" href="/static/fonts/plex-sans-var.woff2" as="font"
+        type="font/woff2" crossorigin>
   <style>
+    /* Self-hosted, so the page makes no third-party request and no visitor's
+       IP reaches a font CDN. 69KB for the three files, served from the app's
+       own origin and cached by URL.
+
+       Sans is ONE variable file, not four static weights. Google Fonts served
+       the same 40KB file for every weight because the family is variable;
+       registering it four times would have downloaded and cached the same
+       bytes four times over. The `font-weight: 400 700` range is what lets a
+       single file answer `font-weight: 640` further down.
+
+       `font-display: swap` means text paints immediately in the fallback and
+       swaps when the font arrives, rather than staying invisible. On a cold
+       cache with a slow connection that is the difference between a page and
+       a blank rectangle. */
+    @font-face {
+      font-family: "Plex Sans";
+      src: url("/static/fonts/plex-sans-var.woff2") format("woff2");
+      font-weight: 400 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Plex Serif";
+      src: url("/static/fonts/plex-serif-600.woff2") format("woff2");
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "Plex Mono";
+      src: url("/static/fonts/plex-mono-400.woff2") format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
     /* Every colour goes through a token, and that is the whole reason the dark
        theme is a block of overrides rather than a second stylesheet. A rule
        that hardcodes `#fff` renders white in *both* themes, which is how a
        dark mode ships broken on the one card nobody looked at. If you need a
        new shade, add a token to both blocks -- never a literal below them.
 
-       The palette is warm. The page is cream rather than grey and the greys
-       that remain are warm greys (a bare #888 next to cream reads faintly
-       blue, which is what makes a themed page look like two designs). The dark
-       theme is warm for the same reason: it is the same page at night, not a
-       different product. */
+       The palette is cool and near-neutral. The greys carry a faint blue cast
+       rather than being pure, and the neutrals are picked to sit under one
+       teal accent. An earlier revision of this file was warm -- cream paper
+       and warm greys -- which read as a branded editorial page rather than as
+       an internal tool; the blue-cast neutrals are what moved it back. The
+       dark theme is cool for the same reason: it is the same page at night,
+       not a different product. */
     :root {
       /* Tells the browser how to draw the parts of the page it owns rather
          than us: scrollbars, the caret, autofill, the focus ring on any
@@ -28,55 +69,66 @@
          scrollbar down the side, which is the detail that gives a theme away. */
       color-scheme: light;
 
-      /* --- surfaces, warm throughout ---------------------------------- */
-      --bg: #f7f3ea;              /* the page: cream */
-      --surface: #fffdf8;         /* cards, columns -- lifts off the cream */
-      --surface-2: #f2ece0;       /* recessed: chips, inline code, the board rail */
-      --border: #e4dccb;
-      --border-strong: #d3c8b0;   /* hover and scrollbar only */
+      /* --- surfaces ---------------------------------------------------- */
+      --bg: #f5f7f8;              /* the page: cool paper, barely off-white */
+      --surface: #ffffff;         /* cards, columns -- lifts off the page */
+      --surface-2: #eef1f3;       /* recessed: chips, inline code, the board rail */
+      --border: #dce1e5;
+      --border-strong: #c3cad1;   /* hover and scrollbar only */
 
       /* --- ink --------------------------------------------------------- */
-      --text: #2b2621;
-      --muted: #6e6656;
-      --faint: #7d7462;           /* metadata: dimmer than --muted, still AA */
+      --text: #1b1f23;
+      --muted: #5b646d;
+      --faint: #676e77;           /* metadata: dimmer than --muted, still AA */
 
       /* --- one accent, deep teal --------------------------------------- */
-      --accent: #0e6b6b;
+      --accent: #0d6b6b;
       --accent-ink: #ffffff;      /* text drawn ON --accent, not coloured BY it */
-      --accent-hover: #0a5656;
-      --accent-soft: #e3efee;     /* accent-tinted fill, e.g. a selected row */
+      --accent-hover: #0a5454;
+      --accent-soft: #e0eeee;     /* accent-tinted fill, e.g. a selected row */
 
       /* --- semantic ---------------------------------------------------- */
-      --ok: #2f6b3f;
-      --ok-bg: #e6f0e4;
-      --ok-bg-faint: #eff5ed;
-      --danger: #a33a2a;
-      --danger-bg: #f7e6e1;
-      --danger-bg-faint: #fbecea;
-      --danger-border: #e0bdb2;
-      --note-bg: #f8eeda;
+      --ok: #2c6b3f;
+      --ok-bg: #e6f1e8;
+      --ok-bg-faint: #eff6f0;
+      --danger: #a8382a;
+      --danger-bg: #fbeae7;
+      --danger-bg-faint: #fdf0ee;
+      --danger-border: #e8c4bc;
+      --note-bg: #fdf3e0;
       --note-fg: #7a5312;
 
-      --chip: #efe8db;
-      --column-head: #f4efe4;
+      --chip: #eceff2;
+      --column-head: #f0f2f4;
 
       /* --- form -------------------------------------------------------- */
-      --field: #fffdf8;
-      --field-hover: #f4efe4;
+      --field: #ffffff;
+      --field-hover: #f2f4f6;
 
       /* --- geometry and motion ----------------------------------------- */
       --radius: 10px;
       --radius-sm: 7px;
       --radius-pill: 999px;
 
-      /* One shadow recipe used at two depths, warm rather than black: a
-         neutral-black shadow over cream reads as a grey smudge. */
-      --shadow-sm: 0 1px 2px rgba(74, 60, 38, .05);
-      --shadow-md: 0 2px 4px rgba(74, 60, 38, .06), 0 1px 2px rgba(74, 60, 38, .04);
-      --shadow-inset: inset 0 1px 2px rgba(74, 60, 38, .06);
+      /* One shadow recipe used at two depths. Cool rather than warm, to match
+         the ground: a warm-shadowed card on a cool page reads as a smudge of
+         the wrong colour rather than as depth. */
+      --shadow-sm: 0 1px 2px rgba(16, 24, 32, .06);
+      --shadow-md: 0 2px 4px rgba(16, 24, 32, .07), 0 1px 2px rgba(16, 24, 32, .05);
+      --shadow-inset: inset 0 1px 2px rgba(16, 24, 32, .06);
 
-      --font-display: ui-serif, "Iowan Old Style", "Palatino Linotype",
-                      Palatino, Georgia, serif;
+      /* One superfamily from IBM, so the sans, the serif and the mono are
+         designed to sit together rather than being three unrelated stacks
+         that happen to be adjacent. The fallbacks are the old system stack,
+         kept rather than replaced: if a font file 404s the page still reads
+         as the same design instead of dropping to Times. */
+      --font-body: "Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                   Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-display: "Plex Serif", ui-serif, "Iowan Old Style", Palatino,
+                      Georgia, serif;
+      --font-mono: "Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+                   monospace;
+
       --ease: 120ms cubic-bezier(.2, .7, .3, 1);
     }
 
@@ -85,50 +137,50 @@
        it can only be right or wrong in both at once.
 
        Not an inversion, and that is the part worth reading. The background is
-       a warm near-black rather than #000 and the text is #ece5d8 rather than
-       #fff, because pure white on pure black haloes on an OLED panel and makes
-       15px body text tiring. The accents lighten rather than invert, since the
-       deep teal that passes contrast on cream disappears on a dark surface,
-       and --accent-ink flips to near-black because white on a light teal
-       button is the one place the whole palette turns over. */
+       a near-black with a blue cast rather than #000 and the text is #e4e9ed
+       rather than #fff, because pure white on pure black haloes on an OLED
+       panel and makes 15px body text tiring. The accents lighten rather than
+       invert, since the deep teal that passes contrast on paper disappears on
+       a dark surface, and --accent-ink flips to near-black because white on a
+       light teal button is the one place the whole palette turns over. */
     @media (prefers-color-scheme: dark) {
       :root {
         color-scheme: dark;
 
-        --bg: #17140f;
-        --surface: #201c16;
-        --surface-2: #262119;
-        --border: #363026;
-        --border-strong: #4a4234;
+        --bg: #12161a;
+        --surface: #191e23;
+        --surface-2: #1f252b;
+        --border: #2b323a;
+        --border-strong: #3d454f;
 
-        --text: #ece5d8;
-        --muted: #a79c89;
-        --faint: #948a7c;
+        --text: #e4e9ed;
+        --muted: #9aa4ae;
+        --faint: #8b95a0;
 
-        --accent: #6cc5c0;
-        --accent-ink: #10201f;
-        --accent-hover: #8ad6d1;
-        --accent-soft: #1d2f2e;
+        --accent: #5fc4c0;
+        --accent-ink: #0d1c1e;
+        --accent-hover: #7fd4d0;
+        --accent-soft: #16302f;
 
-        --ok: #86cc95;
-        --ok-bg: #1b2c1d;
-        --ok-bg-faint: #182619;
-        --danger: #f09480;
-        --danger-bg: #3a2019;
-        --danger-bg-faint: #301c17;
+        --ok: #7fc98f;
+        --ok-bg: #16281a;
+        --ok-bg-faint: #14221a;
+        --danger: #f0937f;
+        --danger-bg: #331d18;
+        --danger-bg-faint: #2b1a16;
         --danger-border: #6b3a2c;
-        --note-bg: #352a15;
-        --note-fg: #f0c979;
+        --note-bg: #2f2712;
+        --note-fg: #eec97d;
 
-        --chip: #2b251d;
-        --column-head: #242019;
+        --chip: #232a31;
+        --column-head: #1c2228;
 
-        --field: #262119;
-        --field-hover: #2f2921;
+        --field: #1f252b;
+        --field-hover: #262d34;
 
-        --shadow-sm: 0 1px 2px rgba(0, 0, 0, .30);
-        --shadow-md: 0 2px 5px rgba(0, 0, 0, .34), 0 1px 2px rgba(0, 0, 0, .24);
-        --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, .30);
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, .32);
+        --shadow-md: 0 2px 5px rgba(0, 0, 0, .36), 0 1px 2px rgba(0, 0, 0, .26);
+        --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, .32);
       }
     }
 
@@ -138,11 +190,17 @@
       margin: 0;
       background: var(--bg);
       color: var(--text);
-      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-            "Helvetica Neue", Arial, sans-serif;
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
+    /* The code pill and anything else monospaced. Set once here rather than on
+       `.hint code`, which was the only place it was styled and left every
+       other `<code>` on the page in the browser's default monospace. */
+    code, kbd, samp, pre { font-family: var(--font-mono); }
 
     a { color: var(--accent); text-underline-offset: 2px; }
     ::selection { background: var(--accent-soft); color: var(--text); }
