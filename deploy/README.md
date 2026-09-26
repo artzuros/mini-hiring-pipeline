@@ -36,13 +36,33 @@ billable relay for whoever found the URL first.
 
 ## What has and has not been run
 
-The YAML parses, the compose file validates against the base file, every
-shell block is syntax-checked, and `cloudflared tunnel ingress validate`
-accepts the ingress config. **None of it has been executed.** Docker is not
-installed on the machine this was built on — the same limitation the README
-records for the container path — so the first boot on a real instance is the
-first real test of these files. Treat step 5 of the runbook as the moment to
-read the logs, not to assume.
+**The first boot was run, and it failed.** That is the most useful sentence
+here, so it goes first. Three defects were found by executing these files, all
+now fixed:
+
+1. **`set -euo pipefail` aborted everything.** `runcmd` entries run under
+   `/bin/sh` — dash on Ubuntu — and dash's `set` has no `pipefail`. It does not
+   ignore the unknown option, it exits; and because cloud-init concatenates
+   every entry into one script, the first boot installed *nothing*. The blocks
+   use `set -eu` now.
+2. **The seed block's `exit 0` skipped the `usermod` beneath it.** Same
+   concatenation: `exit 0` ends the file, not the block. `ubuntu` never joined
+   the `docker` group, so every `docker compose` command over SSH would have
+   failed with permission denied — on a box that otherwise looked deployed. The
+   `usermod` now runs right after Docker installs, and the seed ends with a flag
+   and a `break` instead of an exit.
+3. **The compose file told you to seed without `--yes`**, which the guard makes
+   exit 2. A reviewer following it would hit a refusal they were not warned
+   about.
+
+All three pass `sh -n`, which is exactly why the earlier version of this
+section was wrong: `sh -n` parses, it does not run. The blocks are now checked
+by executing them under `dash` with the mutating commands stubbed, which is a
+test that can actually fail.
+
+Still unexecuted: the image build and the container run, which happen on the
+instance because Docker is not installed on the machine this was built on. Step
+5 of the runbook is where those logs get read.
 
 ## Teardown
 

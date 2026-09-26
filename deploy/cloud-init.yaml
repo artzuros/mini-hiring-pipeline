@@ -4,9 +4,17 @@
 # file, and it explains each step; read that first.
 #
 # Honesty note, in the same spirit as the README's: this file has been
-# reviewed, YAML-parsed, and its shell blocks syntax-checked, but it has never
-# been executed, because Docker is not installed on the machine this project
-# was built on. Treat the first boot as the first test.
+# executed once, and the first run failed completely. Every block below opened
+# with `set -euo pipefail`. `runcmd` entries run under /bin/sh -- dash on
+# Ubuntu -- and dash's `set` does not have `pipefail`. It does not ignore the
+# unknown option either: it aborts the script, and because cloud-init
+# concatenates every runcmd entry into one file, it aborted *all* of them. The
+# first boot installed nothing.
+#
+# The blocks use `set -eu` now, which is POSIX and does what was intended. They
+# were checked by running each one under `dash` -- not with `sh -n`, which is
+# what let this through: `sh -n` only parses, and `set -o pipefail` parses
+# fine. It is a runtime failure, so only running it can catch it.
 #
 # What it deliberately does NOT do: install the Cloudflare tunnel. That needs
 # a tunnel token, and user-data is readable from the instance metadata service
@@ -35,7 +43,7 @@ runcmd:
   # and `!reset` to unpublish a port, and those need Compose 2.24+.
   # ---------------------------------------------------------------------
   - |
-    set -euo pipefail
+    set -eu
     install -m 0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
       -o /etc/apt/keyrings/docker.asc
@@ -47,6 +55,17 @@ runcmd:
       docker-buildx-plugin docker-compose-plugin
     systemctl enable --now docker
 
+    # Added here, immediately after Docker exists, and deliberately not at the
+    # end of this file. cloud-init concatenates every runcmd entry into a
+    # single script, so a `exit` anywhere above would skip a later entry -- and
+    # the seed block below used to end in exactly that. Without group
+    # membership the runbook's `docker compose` commands fail over SSH with
+    # permission denied, on a box that otherwise looks deployed.
+    #
+    # This is root-equivalent access, which is the same trade every Docker
+    # install makes for its operator.
+    usermod -aG docker ubuntu
+
   # ---------------------------------------------------------------------
   # 2. cloudflared, the tunnel client.
   #
@@ -55,7 +74,7 @@ runcmd:
   # when the tunnel is actually set up.
   # ---------------------------------------------------------------------
   - |
-    set -euo pipefail
+    set -eu
     ARCH="$(dpkg --print-architecture)"
     curl -fsSL \
       "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb" \
@@ -67,7 +86,7 @@ runcmd:
   # 3. The application.
   # ---------------------------------------------------------------------
   - |
-    set -euo pipefail
+    set -eu
     APP_DIR=/opt/mini-hiring
     REPO_URL=https://github.com/artzuros/mini-hiring-pipeline.git
 
@@ -99,26 +118,34 @@ runcmd:
   # means it.
   # ---------------------------------------------------------------------
   - |
-    set -euo pipefail
+    set -eu
     cd /opt/mini-hiring
+    # No `exit` anywhere in this block, and that is load-bearing. cloud-init
+    # runs every runcmd entry as ONE script, so `exit 0` does not merely end
+    # this block -- it ends the file, skipping any entry after it. This block
+    # used to `exit 0` on success, which silently skipped the `usermod` that
+    # used to sit below it, leaving a deployed-looking box whose `docker
+    # compose` commands fail over SSH. A flag plus `break` ends the loop and
+    # nothing else.
+    seeded=""
     for attempt in $(seq 1 30); do
       if docker compose \
            -f docker-compose.yml \
            -f deploy/docker-compose.prod.yml \
            exec -T app python scripts/seed.py --yes; then
         echo "Seeded on attempt ${attempt}."
-        exit 0
+        seeded=1
+        break
       fi
       echo "Seed attempt ${attempt}/30 failed; retrying in 5s..." >&2
       sleep 5
     done
-    echo "Seeding failed after 30 attempts; the app is still up." >&2
-    exit 1
-
-  # The ubuntu user gets docker access so the runbook's commands work without
-  # sudo. This is root-equivalent access, which is worth knowing: it is the
-  # same trade every Docker install makes for its operator.
-  - usermod -aG docker ubuntu
+    if [ -z "$seeded" ]; then
+      # The app is up either way; only the sample data is missing. `false`
+      # makes cloud-init report the failure rather than swallowing it.
+      echo "Seeding failed after 30 attempts; the app is still up." >&2
+      false
+    fi
 
 final_message: |
   mini-hiring is up. Next: install the Cloudflare tunnel.
