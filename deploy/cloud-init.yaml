@@ -3,18 +3,24 @@
 # EC2 first-boot setup. `deploy/RUNBOOK.md` is the sequence that uses this
 # file, and it explains each step; read that first.
 #
-# Honesty note, in the same spirit as the README's: this file has been
-# executed once, and the first run failed completely. Every block below opened
-# with `set -euo pipefail`. `runcmd` entries run under /bin/sh -- dash on
-# Ubuntu -- and dash's `set` does not have `pipefail`. It does not ignore the
-# unknown option either: it aborts the script, and because cloud-init
-# concatenates every runcmd entry into one file, it aborted *all* of them. The
-# first boot installed nothing.
+# Honesty note, in the same spirit as the README's: this file has now booted
+# two real instances, and both boots found defects. The first installed
+# nothing; the second came up healthy and could not be operated.
 #
-# The blocks use `set -eu` now, which is POSIX and does what was intended. They
-# were checked by running each one under `dash` -- not with `sh -n`, which is
-# what let this through: `sh -n` only parses, and `set -o pipefail` parses
-# fine. It is a runtime failure, so only running it can catch it.
+# First boot -- `set -euo pipefail`. `runcmd` entries run under /bin/sh, which
+# is dash on Ubuntu, and dash's `set` has no `pipefail`. It does not ignore the
+# unknown option, it exits; and because cloud-init concatenates every entry
+# into one file, that aborted *all* of them.
+#
+# Second boot -- two more. The seed block ended its success path with `exit 0`,
+# which ends that concatenated file rather than just the block, silently
+# skipping the `usermod` beneath it. And nothing handed the root-owned clone to
+# `ubuntu`, so `.env` stayed mode 600 and unreadable, and git refused the
+# repository as "dubious ownership".
+#
+# All three are fixed. The lesson is the same for each: `sh -n` passes on every
+# one of them, because it parses and does not run. The blocks are checked by
+# executing them under `dash` with the mutating commands stubbed.
 #
 # What it deliberately does NOT do: install the Cloudflare tunnel. That needs
 # a tunnel token, and user-data is readable from the instance metadata service
@@ -104,6 +110,16 @@ runcmd:
       printf 'POSTGRES_PASSWORD=%s\n' "$PW" > .env
       chmod 600 .env
     fi
+
+    # runcmd runs as root, so the clone and `.env` above are root-owned. That
+    # leaves a deployment that comes up healthy and then cannot be operated:
+    # `.env` is mode 600 and unreadable by ubuntu, so every `docker compose`
+    # command in the runbook fails on it, and git refuses the clone outright
+    # ("detected dubious ownership"), so `git pull` in the update procedure
+    # fails too. Handing the tree to ubuntu is safe here -- ubuntu is already
+    # in the docker group, which is root-equivalent, and this is the account
+    # the runbook tells you to log in as.
+    chown -R ubuntu:ubuntu "$APP_DIR"
 
     docker compose \
       -f docker-compose.yml \
