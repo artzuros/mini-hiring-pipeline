@@ -12,8 +12,14 @@ indistinguishable to a parser -- both are just leftover text that could be a
 surname. They are distinguishable by *outcome*: the first matches a
 candidate, the second matches nobody at any fuzzy threshold. So a bare name
 guess that matches nobody is treated as "not understood", the model is
-consulted once in case it can see structure the rules missed, and if that
-fails too the caller gets the explanatory 422.
+consulted once in case it can see structure the rules missed, the notes are
+searched once in case the recruiter was remembering something written down
+rather than a name, and only if all three fail does the caller get the
+explanatory 422.
+
+That ordering is not arbitrary. Every step is appended to the *one* path that
+was already about to fail, so each can only turn a 422 into a 200 -- no query
+that succeeded before this chain existed can be answered differently by it.
 
 The trade-off, stated plainly: searching for a real person who is genuinely
 not in the pipeline also produces that 422 rather than an empty list. That is
@@ -44,9 +50,10 @@ def _nothing_recognised(query: str) -> UnparseableQueryError:
 def _no_such_name(name: str, query: str) -> UnparseableQueryError:
     return UnparseableQueryError(
         reason=(
-            f"No candidate matches the name '{name}'. Either nobody by that "
-            f"name is in the pipeline, or the spelling is too far from any "
-            f"stored name for fuzzy matching to bridge. Searched for: '{query}'."
+            f"No candidate matches the name '{name}', and no candidate's "
+            f"notes mention it either. Either nobody by that name is in the "
+            f"pipeline, or the spelling is too far from any stored name for "
+            f"fuzzy matching to bridge. Searched for: '{query}'."
         ),
         examples=SEARCH_EXAMPLES,
     )
@@ -91,5 +98,24 @@ async def search(session: AsyncSession, query: str) -> list[Candidate]:
             alternative_results = await executor.run(session, alternative)
             if alternative_results:
                 return alternative_results
+
+    # --- Then the notes -------------------------------------------------
+    # Last resort, and deliberately *last*: a note search runs only here,
+    # where the alternative is the 422 below. That placement is what makes
+    # the whole feature provably additive -- every query that returned
+    # results before still returns exactly the same results, because this
+    # line is unreachable for any of them. It can convert a 422 into a 200
+    # and it cannot do anything else.
+    #
+    # The cost of that ordering is a real one and worth naming: results
+    # change kind depending on unrelated data. If a candidate were literally
+    # named "Goat", the name filter would match them and the note that says
+    # "goat" would never be reached. The query means "names, unless no name
+    # matches, in which case notes".
+    note_results = await executor.find_by_note_text(
+        session, parsed.name_query or query
+    )
+    if note_results:
+        return note_results
 
     raise _no_such_name(parsed.name_query or query, query)

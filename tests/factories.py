@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.pipeline import Stage
 from app.models.candidate import Candidate
+from app.models.candidate_note import CandidateNote
 from app.models.stage_transition import StageTransition
 
 #: (stage entered, how long ago). Oldest first.
@@ -85,6 +86,31 @@ async def add_candidate(
     candidate.current_stage_since = current_since
     await session.flush()
     return candidate
+
+
+async def add_note(
+    session: AsyncSession,
+    candidate: Candidate,
+    text: str,
+    *,
+    at: datetime | None = None,
+) -> CandidateNote:
+    """Insert one note on `candidate`, optionally backdated.
+
+    Goes through the model rather than `candidate_service.add_note` for the
+    same reason `add_candidate` skips the service: a search test that wrote
+    its fixtures through the code under test could not tell a search bug from
+    a write bug. The direct route also lets a test place a note in the past,
+    which `now()` never will.
+    """
+    note = CandidateNote(
+        candidate_id=candidate.id,
+        body=text,
+        created_at=at or datetime.now(UTC),
+    )
+    session.add(note)
+    await session.flush()
+    return note
 
 
 async def seed_pipeline(session: AsyncSession, now: datetime | None = None) -> dict:
