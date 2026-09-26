@@ -5,6 +5,10 @@ raw connection and issue UPDATE/DELETE directly, which is exactly what a bug,
 a careless migration, or a person at a psql prompt would do. If the guarantee
 only held in application code, these would pass while the real invariant was
 broken.
+
+Both append-only tables are covered: `stage_transitions` (migration 0002) and
+`candidate_notes` (migration 0003). They have separate trigger functions, so a
+mistake in one would not show up in the other's tests.
 """
 
 from __future__ import annotations
@@ -30,6 +34,23 @@ async def _insert_candidate_and_transition(conn) -> uuid.UUID:
             "INSERT INTO stage_transitions (candidate_id, from_stage, to_stage, note) "
             "VALUES (:id, NULL, 'applied', 'created')"
         ),
+        {"id": candidate_id},
+    )
+    await conn.commit()
+    return candidate_id
+
+
+async def _insert_candidate_and_note(conn) -> uuid.UUID:
+    candidate_id = uuid.uuid4()
+    await conn.execute(
+        text(
+            "INSERT INTO candidates (id, name, email) "
+            "VALUES (:id, 'Note Test', :email)"
+        ),
+        {"id": candidate_id, "email": f"{candidate_id}@example.com"},
+    )
+    await conn.execute(
+        text("INSERT INTO candidate_notes (candidate_id, text) VALUES (:id, 'original')"),
         {"id": candidate_id},
     )
     await conn.commit()
@@ -120,11 +141,89 @@ async def test_truncate_clears_the_table_despite_the_guard(raw_connection):
     conn = raw_connection
     await _insert_candidate_and_transition(conn)
 
-    await conn.execute(text("TRUNCATE stage_transitions, candidates CASCADE"))
+    await conn.execute(
+        text("TRUNCATE candidate_notes, stage_transitions, candidates CASCADE")
+    )
     await conn.commit()
 
     result = await conn.execute(text("SELECT count(*) FROM stage_transitions"))
     assert result.scalar_one() == 0
+
+
+# --------------------------------------------------------------------------
+# candidate_notes: the same guarantee, a different table and trigger
+# --------------------------------------------------------------------------
+
+
+async def test_update_on_candidate_notes_is_rejected(raw_connection):
+    conn = raw_connection
+    await _insert_candidate_and_note(conn)
+
+    with pytest.raises(DBAPIError) as excinfo:
+        await conn.execute(text("UPDATE candidate_notes SET text = 'rewritten'"))
+
+    assert "immutable" in str(excinfo.value)
+    await conn.rollback()
+
+
+async def test_delete_on_candidate_notes_is_rejected(raw_connection):
+    conn = raw_connection
+    await _insert_candidate_and_note(conn)
+
+    with pytest.raises(DBAPIError) as excinfo:
+        await conn.execute(text("DELETE FROM candidate_notes"))
+
+    assert "immutable" in str(excinfo.value)
+    await conn.rollback()
+
+
+async def test_the_note_error_names_its_own_table(raw_connection):
+    """Not a cosmetic detail.
+
+    The message has to name `candidate_notes`, not `stage_transitions`. If the
+    two tables shared one trigger function, an operator who tried to edit a
+    note would be told the wrong table was immutable and would go looking in
+    the wrong place.
+    """
+    conn = raw_connection
+    await _insert_candidate_and_note(conn)
+
+    with pytest.raises(DBAPIError) as excinfo:
+        await conn.execute(text("UPDATE candidate_notes SET text = 'rewritten'"))
+
+    message = str(excinfo.value)
+    assert "candidate_notes" in message
+    assert "stage_transitions" not in message
+    await conn.rollback()
+
+
+async def test_the_original_note_survives_a_rejected_update(raw_connection):
+    conn = raw_connection
+    await _insert_candidate_and_note(conn)
+
+    with pytest.raises(DBAPIError):
+        await conn.execute(text("UPDATE candidate_notes SET text = 'rewritten'"))
+    await conn.rollback()
+
+    result = await conn.execute(text("SELECT text FROM candidate_notes"))
+    assert [row.text for row in result.all()] == ["original"]
+
+
+async def test_a_candidate_with_notes_cannot_be_deleted(raw_connection):
+    """The FK is restrictive, deliberately.
+
+    `ON DELETE CASCADE` here would let notes vanish along with a candidate --
+    the same silent loss of history the triggers exist to prevent, reached by
+    a different route.
+    """
+    conn = raw_connection
+    candidate_id = await _insert_candidate_and_note(conn)
+
+    with pytest.raises(IntegrityError):
+        await conn.execute(
+            text("DELETE FROM candidates WHERE id = :id"), {"id": candidate_id}
+        )
+    await conn.rollback()
 
 
 async def test_candidate_email_must_be_unique(raw_connection):

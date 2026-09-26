@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -78,11 +79,42 @@ class TransitionRequest(BaseModel):
     )
 
 
+class NoteCreate(BaseModel):
+    """Body for `POST /candidates/{id}/notes`."""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        json_schema_extra={
+            "example": {"text": "Called both references -- positive on both."}
+        },
+    )
+
+    text: str = Field(
+        min_length=1,
+        max_length=2000,
+        description=(
+            "The note itself. Stored permanently on its own timeline entry. "
+            "Surrounding whitespace is stripped before the length checks, so a "
+            "note of only spaces is a 422 rather than a blank row."
+        ),
+        examples=["Called both references -- positive on both."],
+    )
+
+
 class StageTransitionRead(BaseModel):
-    """One row of the audit trail."""
+    """A stage move in a candidate's timeline."""
 
-    model_config = ConfigDict(from_attributes=True)
-
+    type: Literal["transition"] = Field(
+        default="transition",
+        description="Discriminator for `HistoryEntry`. Always `transition` here.",
+    )
+    at: datetime = Field(
+        description=(
+            "When this happened. UTC. Every timeline entry carries `at`, so a "
+            "client can order the stream without inspecting `type` first."
+        ),
+        examples=["2026-09-20T10:00:00Z"],
+    )
     from_stage: Stage | None = Field(
         description=(
             "The stage the candidate was in before this event. `null` only on "
@@ -93,15 +125,43 @@ class StageTransitionRead(BaseModel):
     to_stage: Stage = Field(
         description="The stage the candidate entered.", examples=["screening"]
     )
-    transitioned_at: datetime = Field(
-        description="When this transition was recorded. UTC.",
-        examples=["2026-09-20T10:00:00Z"],
-    )
-    note: str | None = Field(
+    transition_note: str | None = Field(
         default=None,
-        description="Free-text note attached at the time of the transition.",
+        description=(
+            "Free-text note attached at the time of the transition. Named for "
+            "the transition so it cannot be confused with a `note`-typed "
+            "timeline entry, whose payload is `text`."
+        ),
         examples=["Passed the technical screen."],
     )
+
+
+class NoteOut(BaseModel):
+    """A freestanding recruiter note in a candidate's timeline."""
+
+    type: Literal["note"] = Field(
+        default="note",
+        description="Discriminator for `HistoryEntry`. Always `note` here.",
+    )
+    at: datetime = Field(
+        description="When the note was written. UTC.",
+        examples=["2026-09-22T14:30:00Z"],
+    )
+    id: uuid.UUID = Field(
+        description="Stable identifier for the note. Notes are never edited or deleted."
+    )
+    text: str = Field(
+        description="The note itself.",
+        examples=["Called both references -- positive on both."],
+    )
+
+
+#: One entry in a candidate's timeline. Transitions and notes share a stream
+#: rather than living in two lists, so a reader sees what happened in the order
+#: it happened. `type` is the discriminator; `at` is common to both shapes.
+HistoryEntry = Annotated[
+    StageTransitionRead | NoteOut, Field(discriminator="type")
+]
 
 
 class CandidateSummary(BaseModel):
@@ -133,13 +193,15 @@ class CandidateSummary(BaseModel):
 
 
 class CandidateRead(CandidateSummary):
-    """A candidate with their complete, chronological audit trail."""
+    """A candidate with their complete, chronological timeline."""
 
-    history: list[StageTransitionRead] = Field(
+    history: list[HistoryEntry] = Field(
         description=(
-            "Every transition this candidate has ever made, oldest first, "
-            "starting with their creation. Append-only: rows never change and "
-            "never disappear."
+            "Every event in this candidate's timeline, oldest first, starting "
+            "with their creation. Two shapes share the stream, discriminated "
+            "by `type`: `transition` for a stage move, `note` for a "
+            "freestanding recruiter note. Append-only: entries never change "
+            "and never disappear."
         )
     )
 

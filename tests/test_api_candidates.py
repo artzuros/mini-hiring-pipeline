@@ -67,6 +67,7 @@ async def test_creation_writes_the_first_audit_row(client):
     body = await _create(client)
     history = body["history"]
     assert len(history) == 1
+    assert history[0]["type"] == "transition"
     assert history[0]["from_stage"] is None
     assert history[0]["to_stage"] == "applied"
 
@@ -152,15 +153,15 @@ async def test_advance_records_a_note_on_the_audit_row(client):
         f"/candidates/{body['id']}/advance", json={"note": "Strong portfolio"}
     )
     history = resp.json()["history"]
-    assert history[-1]["note"] == "Strong portfolio"
-    assert history[0]["note"] is None
+    assert history[-1]["transition_note"] == "Strong portfolio"
+    assert history[0]["transition_note"] is None
 
 
 async def test_advance_without_a_body_is_allowed(client):
     body = await _create(client)
     resp = await client.post(f"/candidates/{body['id']}/advance")
     assert resp.status_code == 200
-    assert resp.json()["history"][-1]["note"] is None
+    assert resp.json()["history"][-1]["transition_note"] is None
 
 
 async def test_cannot_advance_past_hired(client):
@@ -214,7 +215,7 @@ async def test_can_reject_from_every_non_terminal_stage(client, steps):
     resp = await client.post(f"/candidates/{cid}/reject", json={"note": "Not a fit"})
     assert resp.status_code == 200
     assert resp.json()["current_stage"] == "rejected"
-    assert resp.json()["history"][-1]["note"] == "Not a fit"
+    assert resp.json()["history"][-1]["transition_note"] == "Not a fit"
 
 
 async def test_cannot_reject_after_hired(client):
@@ -328,4 +329,4 @@ async def test_stage_change_timestamp_matches_the_audit_row(client):
     """
     body = await _create(client)
     moved = (await client.post(f"/candidates/{body['id']}/advance")).json()
-    assert moved["current_stage_since"] == moved["history"][-1]["transitioned_at"]
+    assert moved["current_stage_since"] == moved["history"][-1]["at"]

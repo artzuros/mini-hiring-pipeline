@@ -14,7 +14,9 @@ from app.schemas.candidate import (
     CandidateRead,
     CandidateSummary,
     GroupedCandidates,
-    StageTransitionRead,
+    HistoryEntry,
+    NoteCreate,
+    NoteOut,
     TransitionRequest,
 )
 from app.services import candidate_service
@@ -133,12 +135,14 @@ async def get_candidate(
 
 @router.get(
     "/{candidate_id}/history",
-    response_model=list[StageTransitionRead],
-    summary="A candidate's complete history",
+    response_model=list[HistoryEntry],
+    summary="A candidate's complete timeline",
     description=(
         "The same array embedded in `GET /candidates/{id}`, as its own "
         "endpoint. Oldest first, always complete.\n\n"
-        "This is an audit trail: rows are never updated and never deleted. "
+        "Two shapes share the stream, discriminated by `type`: `transition` "
+        "for a stage move, `note` for a freestanding recruiter note.\n\n"
+        "This is an audit trail: entries are never updated and never deleted. "
         "That is enforced by database triggers, so it holds even against a "
         "direct connection to Postgres."
     ),
@@ -147,9 +151,37 @@ async def get_candidate(
 async def get_history(
     candidate_id: uuid.UUID,
     session: AsyncSession = Depends(get_session),
-) -> list[StageTransitionRead]:
-    transitions = await candidate_service.get_history(session, candidate_id)
-    return [serializers.transition_to_read(t) for t in transitions]
+) -> list[HistoryEntry]:
+    # Deliberately the candidate, not a separate history query: both this
+    # endpoint and `GET /candidates/{id}` build their array through
+    # `serializers.to_history`, so the two cannot drift apart.
+    candidate = await candidate_service.get_candidate(session, candidate_id)
+    return serializers.to_history(candidate)
+
+
+@router.post(
+    "/{candidate_id}/notes",
+    response_model=NoteOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add a note to a candidate",
+    description=(
+        "Appends a freestanding note to the candidate's timeline.\n\n"
+        "A note is **not** a stage change: it does not move the candidate and "
+        "does not affect `time_in_current_stage_seconds`. It is for things "
+        "that happen between moves -- \"called her references\", \"asked for a "
+        "portfolio\".\n\n"
+        "Notes are append-only, enforced by database triggers. There is no "
+        "endpoint to edit or delete one; to correct a note, add another."
+    ),
+    responses={404: {"description": "No candidate with that id."}},
+)
+async def add_note(
+    candidate_id: uuid.UUID,
+    payload: NoteCreate,
+    session: AsyncSession = Depends(get_session),
+) -> NoteOut:
+    note = await candidate_service.add_note(session, candidate_id, payload.text)
+    return serializers.note_to_read(note)
 
 
 @router.post(

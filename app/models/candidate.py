@@ -53,3 +53,8 @@ class Candidate(Base):
         order_by="StageTransition.transitioned_at",
         lazy="selectin",
     )
+    notes: Mapped[list["CandidateNote"]] = relationship(  # noqa: F821
+        back_populates="candidate",
+        order_by="CandidateNote.created_at",
+        lazy="selectin",
+    )

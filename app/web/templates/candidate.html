@@ -60,8 +60,9 @@
 <div class="card">
   <h2 style="margin:0 0 4px; font-size:16px">History</h2>
   <p class="hint" style="margin:0">
-    Append-only. Every row is written once and can never be edited or deleted,
-    including by a direct connection to the database.
+    Append-only. Every entry is written once and can never be edited or deleted,
+    including by a direct connection to the database. Stage moves and notes share
+    one timeline, in the order they happened.
   </p>
   <table class="history">
     <thead>
@@ -75,24 +76,44 @@
       {% for entry in history %}
         <tr>
           <td>
-            {{ entry.transitioned_at | timestamp }}
-            <div style="color:var(--muted);font-size:12px">{{ entry.transitioned_at | ago }} ago</div>
+            {{ entry.at | timestamp }}
+            <div style="color:var(--muted);font-size:12px">{{ entry.at | ago }} ago</div>
           </td>
           <td>
-            {% if entry.from_stage %}
-              <span class="badge">{{ entry.from_stage.value }}</span>
-              <span class="arrow">&rarr;</span>
-            {% endif %}
-            <span class="badge {{ entry.to_stage.value }}">{{ entry.to_stage.value }}</span>
-            {% if not entry.from_stage %}
-              <span style="color:var(--muted);font-size:12px">(added to the pipeline)</span>
+            {% if entry.type == "note" %}
+              <span class="badge note">note</span>
+            {% else %}
+              {% if entry.from_stage %}
+                <span class="badge">{{ entry.from_stage.value }}</span>
+                <span class="arrow">&rarr;</span>
+              {% else %}
+                <span style="color:var(--muted);font-size:12px">(added to the pipeline)</span>
+              {% endif %}
+              <span class="badge {{ entry.to_stage.value }}">{{ entry.to_stage.value }}</span>
             {% endif %}
           </td>
-          <td>{{ entry.note or "" }}</td>
+          <td>
+            {# A transition's note and a note entry's text live in different
+               fields on purpose: `transition_note` annotates a move, while
+               `text` *is* the entry. Reading the wrong one would render a
+               stage move's aside as though it were a standalone note. #}
+            {% if entry.type == "note" %}{{ entry.text }}{% else %}{{ entry.transition_note or "" }}{% endif %}
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+
+  <form class="addform" method="post" action="/ui/candidates/{{ candidate.id }}/notes" style="margin-top:14px">
+    <input type="hidden" name="next" value="/ui/candidates/{{ candidate.id }}">
+    <input type="text" name="text" placeholder="Add a note &mdash; e.g. called her references"
+           maxlength="2000" style="flex:1;min-width:260px" required>
+    <button class="primary" type="submit">Add note</button>
+  </form>
+  <p class="hint" style="margin-top:8px">
+    A note is not a stage change: it does not move the candidate or reset their
+    time in stage.
+  </p>
 </div>
 
 {% endblock %}

@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.pipeline import Stage, next_stage, validate_creation, validate_reject
 from app.models.candidate import Candidate
-from app.models.stage_transition import StageTransition
+from app.models.candidate_note import CandidateNote
 from app.repositories import candidate_repo as repo
 from app.schemas.candidate import CandidateCreate
 from app.services.errors import CandidateNotFoundError, DuplicateEmailError
@@ -90,13 +90,26 @@ async def get_candidate(session: AsyncSession, candidate_id: uuid.UUID) -> Candi
     return candidate
 
 
-async def get_history(
-    session: AsyncSession, candidate_id: uuid.UUID
-) -> list[StageTransition]:
-    # Confirms the candidate exists, so an unknown id is a 404 rather than an
-    # empty list that looks like "this candidate has no history".
+async def add_note(
+    session: AsyncSession, candidate_id: uuid.UUID, text: str
+) -> CandidateNote:
+    """Append a note to a candidate's timeline.
+
+    Unlike `advance`/`reject` there is no paired write here, so there is no
+    invariant spanning two rows and no need for `_apply_transition`'s
+    both-or-neither transaction. One insert, one commit.
+
+    The candidate is fetched first so an unknown id is a 404 rather than a
+    foreign-key violation, which would surface as a 500.
+    """
     await get_candidate(session, candidate_id)
-    return await repo.list_history(session, candidate_id)
+    note = await repo.add_note(session, candidate_id=candidate_id, text=text)
+    await session.commit()
+    # `created_at` comes from the database's `now()`, so it is not populated
+    # until the row is read back. Accessing it lazily would raise
+    # `MissingGreenlet` under asyncio; refresh it here, inside the await.
+    await session.refresh(note)
+    return note
 
 
 async def _apply_transition(

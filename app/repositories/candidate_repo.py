@@ -5,8 +5,9 @@ is a query builder in its own right). Services above this layer deal in
 objects and domain rules, never in queries.
 
 Note what is *absent*: there is no method to update or delete a
-`StageTransition`. The table is append-only and enforced as such by database
-triggers, so no such method could work even if it existed.
+`StageTransition` or a `CandidateNote`. Both tables are append-only and
+enforced as such by database triggers, so no such method could work even if
+it existed.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.pipeline import Stage
 from app.models.candidate import Candidate
+from app.models.candidate_note import CandidateNote
 from app.models.stage_transition import StageTransition
 
 
@@ -109,16 +111,26 @@ async def list_ordered_by_stage_entry(session: AsyncSession) -> list[Candidate]:
     return list(result.scalars().all())
 
 
-async def list_history(
-    session: AsyncSession, candidate_id: uuid.UUID
-) -> list[StageTransition]:
-    """The full audit trail for one candidate, oldest first."""
-    result = await session.execute(
-        select(StageTransition)
-        .where(StageTransition.candidate_id == candidate_id)
-        .order_by(StageTransition.transitioned_at.asc(), StageTransition.id.asc())
-    )
-    return list(result.scalars().all())
+async def add_note(
+    session: AsyncSession,
+    *,
+    candidate_id: uuid.UUID,
+    text: str,
+) -> CandidateNote:
+    """Append a note to a candidate's timeline.
+
+    Does not commit, and -- deliberately -- does not check that the candidate
+    exists. That check belongs in the service, where `get_candidate` already
+    implements it and where the resulting 404 is a decision about HTTP rather
+    than about SQL.
+
+    There is no update or delete counterpart, here or anywhere else: the
+    table is append-only and the database enforces it.
+    """
+    note = CandidateNote(candidate_id=candidate_id, body=text)
+    session.add(note)
+    await session.flush()
+    return note
 
 
 async def set_current_stage(

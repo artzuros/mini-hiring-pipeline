@@ -25,13 +25,14 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
+from app.api import serializers
 from app.domain.pipeline import (
     TERMINAL_STAGES,
     InvalidTransitionError,
     Stage,
     next_stage,
 )
-from app.schemas.candidate import CandidateCreate
+from app.schemas.candidate import CandidateCreate, NoteCreate
 from app.services import candidate_service
 from app.services.errors import SEARCH_EXAMPLES, ServiceError, UnparseableQueryError
 from app.services.search import service as search_service
@@ -146,7 +147,6 @@ async def candidate_detail(
 ) -> HTMLResponse:
     try:
         candidate = await candidate_service.get_candidate(session, candidate_id)
-        history = await candidate_service.get_history(session, candidate_id)
     except _EXPECTED_ERRORS as exc:
         return _redirect("/", flash=exc.message, kind="bad")
 
@@ -154,7 +154,7 @@ async def candidate_detail(
         session,
         request,
         candidate=candidate,
-        history=history,
+        history=serializers.to_history(candidate),
         time_in_stage=candidate_service.time_in_current_stage_seconds(candidate),
         next_stage=_next_stage_map()[candidate.current_stage.value],
         flash=flash,
@@ -227,3 +227,38 @@ async def reject_form(
         return _redirect(target, flash=exc.message, kind="bad")
 
     return _redirect(target, flash=f"{candidate.name} was rejected.")
+
+
+@router.post("/ui/candidates/{candidate_id}/notes", summary="Add a note to a candidate")
+async def add_note_form(
+    candidate_id: uuid.UUID,
+    text: str = Form(""),
+    next: str = Form("/"),
+    session: AsyncSession = Depends(get_session),
+) -> RedirectResponse:
+    target = _safe_redirect_target(next, "/")
+
+    # Checked here rather than left to `NoteCreate`: a browser needs a
+    # sentence, and the schema's own message ("String should have at least 1
+    # character") describes the field rather than the problem.
+    if not text.strip():
+        return _redirect(target, flash="A note needs some text.", kind="bad")
+
+    try:
+        payload = NoteCreate(text=text)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        if first["type"] == "string_too_long":
+            return _redirect(
+                target,
+                flash=f"A note is limited to 2000 characters; that one was {len(text.strip())}.",
+                kind="bad",
+            )
+        return _redirect(target, flash=f"note: {first['msg']}", kind="bad")
+
+    try:
+        await candidate_service.add_note(session, candidate_id, payload.text)
+    except _EXPECTED_ERRORS as exc:
+        return _redirect(target, flash=exc.message, kind="bad")
+
+    return _redirect(target, flash="Note added.")

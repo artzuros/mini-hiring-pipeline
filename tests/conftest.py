@@ -90,7 +90,9 @@ async def _clean_database(engine) -> AsyncIterator[None]:
     leaves the next one a clean slate.
     """
     async with engine.begin() as conn:
-        await conn.execute(text("TRUNCATE stage_transitions, candidates CASCADE"))
+        await conn.execute(
+            text("TRUNCATE candidate_notes, stage_transitions, candidates CASCADE")
+        )
     yield
 
 
