@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -162,6 +163,14 @@ async def health() -> JSONResponse:
 from app.api.routers import candidates as candidates_router  # noqa: E402
 from app.api.routers import search as search_router  # noqa: E402
 from app.web import routes as web_router  # noqa: E402
+
+# The `python:3.12-slim` base image has no `.woff2` entry in its mime database,
+# so `guess_type` returns None and StaticFiles falls back to
+# `application/octet-stream`. Browsers render the font anyway -- the `format()`
+# hint in the @font-face rule is what they trust -- but it is the wrong header,
+# and it is invisible from a dev machine, whose mime database does know the
+# type. Registering it makes the container serve what the laptop serves.
+mimetypes.add_type("font/woff2", ".woff2")
 
 app.include_router(candidates_router.router)
 app.include_router(search_router.router)
