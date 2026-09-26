@@ -1,0 +1,28 @@
+# Cloudflare Tunnel ingress for the deployment. Copy to /etc/cloudflared/config.yml
+# on the instance, with the two placeholders substituted -- see RUNBOOK.md.
+#
+# The shape of this file is the security story: the tunnel makes an *outbound*
+# connection to Cloudflare's edge and keeps it open, so requests arrive down a
+# connection the instance opened. Nothing dials in. There is no inbound port to
+# scan, no certificate to renew, and no public IP address in the app's path.
+#
+# Validate before installing. Note the flag order -- `--config` belongs to
+# `tunnel`, not to `ingress`, and putting it after is a usage error rather
+# than a silent misread:
+#
+#     cloudflared tunnel --config deploy/cloudflared.yml ingress validate
+
+tunnel: __TUNNEL_ID__
+credentials-file: /etc/cloudflared/__TUNNEL_ID__.json
+
+ingress:
+  # The whole app. One hostname, one service -- there is no second origin to
+  # route to, and no path-based split to get wrong.
+  - hostname: __HOSTNAME__
+    service: http://127.0.0.1:8000
+
+  # Catch-all. Without this, a request for a hostname that does not match
+  # anything above is answered by cloudflared itself with a 404 from its own
+  # memory; with it, the behaviour is the same but stated rather than implied,
+  # and `ingress validate` has something to check the list against.
+  - service: http_status:404

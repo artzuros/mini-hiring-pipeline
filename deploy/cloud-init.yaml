@@ -1,0 +1,125 @@
+#cloud-config
+#
+# EC2 first-boot setup. `deploy/RUNBOOK.md` is the sequence that uses this
+# file, and it explains each step; read that first.
+#
+# Honesty note, in the same spirit as the README's: this file has been
+# reviewed, YAML-parsed, and its shell blocks syntax-checked, but it has never
+# been executed, because Docker is not installed on the machine this project
+# was built on. Treat the first boot as the first test.
+#
+# What it deliberately does NOT do: install the Cloudflare tunnel. That needs
+# a tunnel token, and user-data is readable from the instance metadata service
+# by anything running on the box, is retained in the EC2 API, and often ends
+# up in console screenshots. A credential does not belong in it. The runbook
+# installs the tunnel over SSH afterwards, in one command.
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - git
+  - curl
+  - ca-certificates
+  - gnupg
+
+users:
+  - default
+
+runcmd:
+  # ---------------------------------------------------------------------
+  # 1. Docker, from Docker's repository rather than Ubuntu's.
+  #
+  # Ubuntu 24.04 does ship docker.io, and it would run the app. Its Compose
+  # plugin is the problem: `deploy/docker-compose.prod.yml` uses `!override`
+  # and `!reset` to unpublish a port, and those need Compose 2.24+.
+  # ---------------------------------------------------------------------
+  - |
+    set -euo pipefail
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+      -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+      > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io \
+      docker-buildx-plugin docker-compose-plugin
+    systemctl enable --now docker
+
+  # ---------------------------------------------------------------------
+  # 2. cloudflared, the tunnel client.
+  #
+  # Installed but not started. It has no configuration yet, and starting it
+  # early would only produce a crash loop that makes the logs harder to read
+  # when the tunnel is actually set up.
+  # ---------------------------------------------------------------------
+  - |
+    set -euo pipefail
+    ARCH="$(dpkg --print-architecture)"
+    curl -fsSL \
+      "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${ARCH}.deb" \
+      -o /tmp/cloudflared.deb
+    dpkg -i /tmp/cloudflared.deb
+    cloudflared --version
+
+  # ---------------------------------------------------------------------
+  # 3. The application.
+  # ---------------------------------------------------------------------
+  - |
+    set -euo pipefail
+    APP_DIR=/opt/mini-hiring
+    REPO_URL=https://github.com/artzuros/mini-hiring-pipeline.git
+
+    if [ ! -d "$APP_DIR/.git" ]; then
+      git clone --depth 1 "$REPO_URL" "$APP_DIR"
+    fi
+    cd "$APP_DIR"
+
+    if [ ! -f .env ]; then
+      # Generated here, never chosen. It is not a secret anyone needs to
+      # remember -- the app reaches the database over the compose network and
+      # nothing else connects -- and a generated one cannot be guessed from
+      # the repository or reused from another deployment.
+      PW="$(head -c 32 /dev/urandom | base64 | tr -d '/+=' | head -c 32)"
+      printf 'POSTGRES_PASSWORD=%s\n' "$PW" > .env
+      chmod 600 .env
+    fi
+
+    docker compose \
+      -f docker-compose.yml \
+      -f deploy/docker-compose.prod.yml \
+      up -d --build
+
+  # ---------------------------------------------------------------------
+  # 4. Sample data, so the brief's example searches have something to answer.
+  #
+  # `--yes` because seed.py truncates. It is guarded precisely so that a
+  # script cannot empty a database by being run; this is the one caller that
+  # means it.
+  # ---------------------------------------------------------------------
+  - |
+    set -euo pipefail
+    cd /opt/mini-hiring
+    for attempt in $(seq 1 30); do
+      if docker compose \
+           -f docker-compose.yml \
+           -f deploy/docker-compose.prod.yml \
+           exec -T app python scripts/seed.py --yes; then
+        echo "Seeded on attempt ${attempt}."
+        exit 0
+      fi
+      echo "Seed attempt ${attempt}/30 failed; retrying in 5s..." >&2
+      sleep 5
+    done
+    echo "Seeding failed after 30 attempts; the app is still up." >&2
+    exit 1
+
+  # The ubuntu user gets docker access so the runbook's commands work without
+  # sudo. This is root-equivalent access, which is worth knowing: it is the
+  # same trade every Docker install makes for its operator.
+  - usermod -aG docker ubuntu
+
+final_message: |
+  mini-hiring is up. Next: install the Cloudflare tunnel.
+  See deploy/RUNBOOK.md, step 6.

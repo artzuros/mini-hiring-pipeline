@@ -1,0 +1,49 @@
+# Deployment overrides. Used *with* the base file, never instead of it:
+#
+#     docker compose -f docker-compose.yml -f deploy/docker-compose.prod.yml up -d --build
+#
+# This is an override rather than a second standalone compose file so that the
+# two definitions cannot drift. Everything not overridden here -- the
+# healthcheck, the volume, the build context, `depends_on: service_healthy` --
+# is exactly what runs locally. A fork would mean the deployed topology is the
+# one nobody has run.
+#
+# Requires Compose 2.24 or newer, for `!override` and `!reset`. That is one
+# reason the runbook installs Docker from Docker's own repository rather than
+# from Ubuntu's, whose plugin package predates those tags.
+
+services:
+  db:
+    environment:
+      # Generated on the instance at first boot into /opt/mini-hiring/.env --
+      # never typed by hand, never in this file. `:?` makes an unset value a
+      # hard failure at `compose up` rather than a silent fall back to the
+      # base file's `postgres`, which would be a guessable password on a
+      # public host.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    # The base file publishes 5433 on every interface, which is right for a
+    # laptop and wrong here. The database is reached over the compose network
+    # by service name; nothing outside the host needs it, so nothing outside
+    # the host gets it.
+    ports: !reset []
+    restart: unless-stopped
+
+  app:
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:?}@db:5432/hiring
+      # There is deliberately no ANTHROPIC_API_KEY here. This app is served
+      # without authentication, so a key on the box would turn an open demo
+      # into an open, billable relay for anyone who found it. Without a key,
+      # `llm_fallback` returns None and search degrades to the rule-based
+      # parser -- which alone answers every example in the brief. The flag is
+      # set false as well as the key being absent, so that adding a key later
+      # cannot silently start spending money.
+      ANTHROPIC_API_KEY: ""
+      SEARCH_LLM_FALLBACK_ENABLED: "false"
+    # Bound to loopback, not 0.0.0.0. The only thing that talks to this app is
+    # cloudflared, which runs on the same host. Nothing arrives from the
+    # internet except through the tunnel, so the instance's security group can
+    # leave port 8000 closed entirely.
+    ports: !override
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
