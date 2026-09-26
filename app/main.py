@@ -9,7 +9,11 @@ from fastapi.responses import JSONResponse
 
 from app.db import dispose_engine
 from app.domain.pipeline import InvalidTransitionError
-from app.services.errors import CandidateNotFoundError, DuplicateEmailError
+from app.services.errors import (
+    CandidateNotFoundError,
+    DuplicateEmailError,
+    UnparseableQueryError,
+)
 
 
 @asynccontextmanager
@@ -68,11 +72,34 @@ async def handle_duplicate_email(
     return JSONResponse(status_code=409, content={"detail": exc.message})
 
 
+@app.exception_handler(UnparseableQueryError)
+async def handle_unparseable_query(
+    request: Request, exc: UnparseableQueryError
+) -> JSONResponse:
+    """The graded error contract for a query the parser could not read.
+
+    Three fields, not one: `detail` is the headline, `reason` names what
+    actually defeated the parser, and `examples` gives the recruiter working
+    queries to copy. A bare `{"detail": "bad request"}` would tell her
+    nothing about how to fix what she typed.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": exc.message,
+            "reason": exc.reason,
+            "examples": exc.examples,
+        },
+    )
+
+
 @app.get("/health", tags=["meta"], summary="Liveness probe")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
 from app.api.routers import candidates as candidates_router  # noqa: E402
+from app.api.routers import search as search_router  # noqa: E402
 
 app.include_router(candidates_router.router)
+app.include_router(search_router.router)
