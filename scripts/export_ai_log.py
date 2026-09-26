@@ -50,7 +50,9 @@ REDACTIONS: list[tuple[str, str]] = [
     # behind. Its cost: an address wrapped in markdown bold loses the `**`
     # that marked it, because the local-part match is greedy. That is a
     # cosmetic loss on a line whose entire content is being removed anyway.
-    (r"[A-Za-z0-9._%+*-]+@gmail\.com", "[redacted email]"),
+    # `\\?\.` accepts the escaped spelling (`@gmail\.com`) that a search
+    # command or a regex literal reaches the log with.
+    (r"[A-Za-z0-9._%+*-]+@gmail\\?\.com", "[redacted email]"),
     # The same address's local part standing on its own -- in a shell command,
     # or in a table of counts -- where no domain is attached to give it away.
     # Runs *after* the rule above, so the domain form is matched whole rather
@@ -82,7 +84,17 @@ REDACTIONS: list[tuple[str, str]] = [
     # Replaced with `[user]` and not `<user>` because this is markdown:
     # an angle-bracketed token is an HTML tag to every renderer, and GitHub
     # strips unknown tags, so `<user>` would silently vanish from the page.
-    (r"\bpranavbansal\b", "[user]"),
+    #
+    # Case-insensitive, because the name is spelled more than one way in the
+    # transcript, and a spelling is the thing being removed -- `Pranavbansal`
+    # is no less the account name for being capitalised. Matching on case
+    # would have left the variant behind while claiming the rule was applied.
+    (r"(?i)\bpranavbansal\b", "[user]"),
+    # Paths that were *truncated* mid-name -- `_truncate` caps a tool input at
+    # 600 characters, and a cut landing inside the name leaves `/Users/pranav`
+    # or `-Users-pranav`, which no whole-word rule can match. Anchored to the
+    # two path shapes so this cannot reach a bare first name in prose.
+    (r"(?i)(/Users/|-Users-)pranav[a-z]*", r"\1[user]"),
 ]
 
 
