@@ -81,7 +81,7 @@ brew install postgresql@16 2>&1 | tail -20
 **→ `Bash`**
 
 ```
-git init -q && mkdir -p app/{domain,models,schemas,repositories,services/search,api/routers,web} migrations/versions tests scripts ai-logs && git config user.email "pranavbansal@users.noreply.github.com" 2>/dev/null; git config user.name "Pranav Bansal"; find . -type d -not -path "./.git*" | sort
+git init -q && mkdir -p app/{domain,models,schemas,repositories,services/search,api/routers,web} migrations/versions tests scripts ai-logs && git config user.email "[redacted]" 2>/dev/null; git config user.name "Pranav Bansal"; find . -type d -not -path "./.git*" | sort
 ```
 
 ### 🤖 Claude
@@ -2090,7 +2090,7 @@ Summary:
    **Standing constraints from the user's global CLAUDE.md (must continue to apply):**
    - Before presenting any new code, diff, or PR, walk through a 6-point checklist **explicitly**, each point on its own line even if the answer is "not applicable, because X": (1) Problem fit — restate the problem solved, say if it's narrower/different than asked; (2) Edge cases NOT handled (empty input, null, concurrent writes, huge input, malformed data, network failure, retries) or why none exist; (3) Load/scale — if it runs on user input, a loop, or an event handler, say explicitly whether it fires more often than intended and needs debouncing/throttling/caching/rate-limiting; (4) Why this approach — name at least one simpler/more conservative alternative not picked and why; (5) Security — flag anything touching auth, user input, SQL/queries, file paths, secrets, or deserialization; (6) Deletions — explicitly call out removed/modified code not written this session and why it's safe. Do not compress into a "looks good" summary.
    - Explain-before-accept mode: for non-trivial code (>~15 lines or touching business logic/data/state), explain reasoning as if teaching a 2am maintainer with no AI; proactively state "This would break if ___"; give real technical justification if asked "why this way", and say so if a genuinely better approach exists.
-   - Commit attribution: end git commit messages with `Co-Authored-By: Claude Code <noreply@anthropic.com>`. PR descriptions end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+   - Commit attribution: [redacted from this published copy].
 
 7. **Pending Tasks:**
    - **Immediate:** run the full test suite after wiring search into `main.py`; then write `tests/test_search_executor.py` / search-service tests and `tests/test_search_llm_fallback.py` (with a monkeypatched client, no live network).
